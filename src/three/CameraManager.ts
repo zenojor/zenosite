@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import gsap from 'gsap'
 import type { PageName } from '../state/siteState'
+import { CAMERA_CONFIG } from '../state/siteConfig'
 
 type CameraMode = 'orbit' | 'transitioning' | 'fixed'
 
@@ -9,29 +10,7 @@ interface CameraViewDef {
   lookAt: THREE.Vector3
 }
 
-/**
- * 每个页面的相机视角定义。
- * About 视角的关键：lookAt 不对准原点，而是偏向模型背后，
- * 使模型在画面上偏向浏览器窗口左侧。
- */
-const CAMERA_VIEWS: Record<string, CameraViewDef> = {
-  about: {
-    position: new THREE.Vector3(6, -1, -6),
-    lookAt: new THREE.Vector3(-4, 0, 0),
-  },
-  experience: {
-    position: new THREE.Vector3(10, 3, 6),
-    lookAt: new THREE.Vector3(-4, 0, 0),
-  },
-  projects: {
-    position: new THREE.Vector3(10, 3, 6),
-    lookAt: new THREE.Vector3(-4, 0, 0),
-  },
-  contact: {
-    position: new THREE.Vector3(10, 3, 6),
-    lookAt: new THREE.Vector3(-4, 0, 0),
-  },
-}
+/** 相机视角定义从 siteConfig.ts 的 CAMERA_CONFIG.views 读取 */
 
 export class CameraManager {
   camera: THREE.PerspectiveCamera
@@ -41,8 +20,8 @@ export class CameraManager {
 
   // Orbit 模式参数
   private angle = 0
-  private readonly cameraDistance = 18
-  private readonly cameraHeight = 3
+  private get cameraDistance() { return CAMERA_CONFIG.orbit.distance }
+  private get cameraHeight() { return CAMERA_CONFIG.orbit.height }
 
   // 鼠标/触控拖拽控制
   private isDragging = false
@@ -63,7 +42,7 @@ export class CameraManager {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
-    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000)
+    this.camera = new THREE.PerspectiveCamera(CAMERA_CONFIG.fov, window.innerWidth / window.innerHeight, 0.1, 1000)
 
     this.onPointerDownBound = this.onPointerDown.bind(this)
     this.onPointerMoveBound = this.onPointerMove.bind(this)
@@ -111,9 +90,12 @@ export class CameraManager {
       return this.transitionToOrbit(duration)
     }
 
-    const view = CAMERA_VIEWS[page]
-    if (!view) return Promise.resolve()
-
+    const viewDef = CAMERA_CONFIG.views[page]
+    if (!viewDef) return Promise.resolve()
+    const view: CameraViewDef = {
+      position: new THREE.Vector3(viewDef.position.x, viewDef.position.y, viewDef.position.z),
+      lookAt: new THREE.Vector3(viewDef.lookAt.x, viewDef.lookAt.y, viewDef.lookAt.z),
+    }
     return this.transitionToFixed(view, duration)
   }
 
@@ -186,7 +168,7 @@ export class CameraManager {
         },
         onComplete: () => {
           this.mode = 'orbit'
-          this.velocity = 0.002 // 恢复默认旋转速度
+          this.velocity = CAMERA_CONFIG.orbit.defaultVelocity
           this.canvas.style.cursor = 'grab'
           this.activeTweens = []
           resolve()
@@ -214,7 +196,7 @@ export class CameraManager {
       } else {
         this.canvas.style.cursor = 'grab'
         this.angle += this.velocity
-        this.velocity += (0.002 - this.velocity) * 0.05
+        this.velocity += (CAMERA_CONFIG.orbit.defaultVelocity - this.velocity) * 0.05
       }
 
       this.camera.position.x = Math.cos(this.angle) * this.cameraDistance

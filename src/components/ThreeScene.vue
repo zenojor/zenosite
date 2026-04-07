@@ -106,10 +106,9 @@ canvas {
 
 /* 全局 UI 统一风格（参考主标题颜色 #595959，避免纯黑 #111 过重） */
 .back-btn, .nav-container {
-  font-family: 'Courier New', 'DinkieBitmap 9px', Courier, monospace;
+  font-family: 'Courier New', Courier, monospace;
   font-size: 16px;
   color: #595959;
-  font-weight: bold;
   letter-spacing: 1px;
   user-select: none;
 }

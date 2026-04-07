@@ -1,6 +1,9 @@
 import { prepareWithSegments, layoutNextLine, type LayoutCursor, type PreparedTextWithSegments } from '@chenglou/pretext'
 import type { EffectManager } from './EffectManager'
+import { SITE_CONTENT, type SubPageContent, type SocialBadge } from '../state/siteContent'
+import type { PageName } from '../state/siteState'
 import gsap from 'gsap'
+import { BREAKPOINTS, HOME_LAYOUT, SUB_PAGE_LAYOUT, responsive } from '../state/siteConfig'
 
 export class LayoutManager {
   // ========== 主页 Dynamic Layout ==========
@@ -18,7 +21,7 @@ export class LayoutManager {
     '|_______||_______||_|  |__||_______||___| |___| |_______|       |__| |__||___| |______| |_______|  |___|  ',
   ]
   private readonly TITLE_LETTER_SPACINGS: string[]
-  private readonly TITLE_COLOR = '#595959'
+  private get TITLE_COLOR() { return HOME_LAYOUT.title.color }
   private readonly HEADLINE_FONT_FAMILY = "'Courier New', Courier, monospace"
 
   private currentTitleFontSize = 0
@@ -32,59 +35,18 @@ export class LayoutManager {
   // 2D canvas for text measurement
   private textMaskCtx: CanvasRenderingContext2D
 
-  // ========== About 布局（预格式化 ASCII Art） ==========
-  private readonly ABOUT_LINES = [
-    '╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════╗',
-    '║                                                                                                              ║',
-    '║   _______  _______  __    _  _______        ___   _______         _______        ______   _______  __   __   ║',
-    '║  |       ||       ||  |  | ||       |      |   | |       |       |   _   |      |      | |       ||  | |  |  ║',
-    '║  |____   ||    ___||   |_| ||   _   |      |   | |  _____| ____  |  |_|  |      |  _    ||    ___||  |_|  |  ║',
-    '║   ____|  ||   |___ |       ||  | |  |      |   | | |_____ |____| |       |      | | |   ||   |___ |       |  ║',
-    '║  | ______||    ___||  _    ||  |_|  | ___  |   | |_____  |       |       | ___  | |_|   ||    ___||       |  ║',
-    '║  | |_____ |   |___ | | |   ||       ||   | |   |  _____| |       |   _   ||   | |       ||   |___  |     |   ║',
-    '║  |_______||_______||_|  |__||_______||___| |___| |_______|       |__| |__||___| |______| |_______|  |___|    ║',
-    '║                                                                                                              ║',
-    '║                                                                                                              ║',
-    '║  > Hi, I\'m Zeno.                                                                                             ║',
-    '║                                                                                                              ║',
-    '║    I am a student majoring in Intelligent Science and Technology at Southwest University.                    ║',
-    '║    Currently, I am honing my skills in front-end development with the ultimate goal                          ║',
-    '║    of becoming a professional Front-end or Full-stack Software Engineer.                                     ║',
-    '║                                                                                                              ║',
-    '║    I built this website to serve as more than just a digital business card. Like many creators,              ║',
-    '║    I wanted a dedicated space to curate my projects and push the boundaries of my potential.                 ║',
-    '║                                                                                                              ║',
-    '║    Moving forward, I plan to launch a technical blog here to share my insights and journey                   ║',
-    '║    through various tech stacks.                                                                              ║',
-    '║                                                                                                              ║',
-    '╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════╣',
-    '║                                                                                                              ║',
-    '║  > My tech stacks:                                                                                           ║',
-    '║                                                                                                              ║',
-    '║                                                                                                              ║',
-    '║                                                                                                              ║',
-    '║                                                                                                              ║',
-    '╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════╝',
+  // ========== SubPage 布局（预格式化 ASCII Art） ==========
+  private currentSubPageContent: SubPageContent | null = null
+  private subPageLinesPool: HTMLDivElement[] = []
 
-  ]
-  private aboutLinesPool: HTMLDivElement[] = []
+  // ========== Scrollable container ==========
+  private scrollContainer: HTMLDivElement | null = null
+  private scrollInnerWrapper: HTMLDivElement | null = null
 
   // ========== Badges ==========
-  private readonly BADGE_URLS = [
-    'https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=fff',
-    'https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=000',
-    'https://img.shields.io/badge/C-00599C?logo=c&logoColor=white',
-    'https://img.shields.io/badge/Java-%23ED8B00.svg?logo=openjdk&logoColor=white',
-    'https://img.shields.io/badge/Vue.js-4FC08D?logo=vuedotjs&logoColor=fff',
-    'https://img.shields.io/badge/React-%2320232a.svg?logo=react&logoColor=%2361DAFB',
-    'https://img.shields.io/badge/Three.js-000?logo=threedotjs&logoColor=fff',
-    'https://img.shields.io/badge/WebGL-990000?logo=webgl&logoColor=white',
-    'https://img.shields.io/badge/Node.js-6DA55F?logo=node.js&logoColor=white',
-    'https://img.shields.io/badge/Next.js-black?logo=next.js&logoColor=white',
-  ]
   private badgeContainer: HTMLDivElement | null = null
-  // "My tech stacks:" 所在行的索引（0-based），badges 从其下一行开始渲染
-  private readonly BADGE_ANCHOR_LINE_INDEX = 25 // '> My tech stacks:' line
+  private socialBadgeContainer: HTMLDivElement | null = null
+  private copyToast: HTMLDivElement | null = null
 
   /**
    * 主页文字可见度：0 = 全部空格，1 = 正常显示。
@@ -142,10 +104,10 @@ export class LayoutManager {
     effectManager: EffectManager,
   ) {
     // 1. Title Dimensions Update
-    const titleRightSpace = window.innerWidth < 768 ? 20 : 40
+    const titleRightSpace = responsive(HOME_LAYOUT.title.rightSpace)
     const maxLineLen = Math.max(...this.TITLE_LINES.map((l) => l.length))
     const availableWidth = Math.max(200, window.innerWidth / 2 - titleRightSpace - 20)
-    const targetFontSize = Math.max(6, Math.min(16, Math.floor(availableWidth / (maxLineLen * 0.6))))
+    const targetFontSize = Math.max(HOME_LAYOUT.title.minFontSize, Math.min(HOME_LAYOUT.title.maxFontSize, Math.floor(availableWidth / (maxLineLen * 0.6))))
     if (this.currentTitleFontSize !== targetFontSize || window.innerWidth !== this.lastWindowWidth) {
       this.currentTitleFontSize = targetFontSize
       this.lastWindowWidth = window.innerWidth
@@ -167,7 +129,7 @@ export class LayoutManager {
 
     this.textMaskCtx.font = `${this.currentTitleFontSize}px ${this.HEADLINE_FONT_FAMILY}`
 
-    let currentTitleY = 40
+    let currentTitleY = HOME_LAYOUT.title.startY
     const titleRects: { top: number; bottom: number; left: number; right: number }[] = []
 
     for (let i = 0; i < this.TITLE_LINES.length; i++) {
@@ -196,12 +158,12 @@ export class LayoutManager {
 
     // 3. Layout Body dynamically dodging boundaries
     const region = {
-      x: window.innerWidth / 2 + 20,
-      y: 60,
-      width: Math.max(0, window.innerWidth / 2 - 40),
-      height: Math.max(0, window.innerHeight - 100),
+      x: window.innerWidth / 2 + HOME_LAYOUT.body.xOffset,
+      y: HOME_LAYOUT.body.yStart,
+      width: Math.max(0, window.innerWidth / 2 - HOME_LAYOUT.body.rightPadding),
+      height: Math.max(0, window.innerHeight - HOME_LAYOUT.body.bottomPadding),
     }
-    const lineHeight = 18
+    const lineHeight = HOME_LAYOUT.body.lineHeight
     let cursor: LayoutCursor = { segmentIndex: 0, graphemeIndex: 0 }
     let lineTop = region.y
     const linesData = []
@@ -212,15 +174,13 @@ export class LayoutManager {
 
       const limits = effectManager.getObstacleLimits(lineTop, lineHeight)
       if (limits.modelRight > 0) {
-        const padding = 20
-        slotLeft = Math.max(slotLeft, limits.modelRight + padding)
+        slotLeft = Math.max(slotLeft, limits.modelRight + HOME_LAYOUT.body.modelDodgePadding)
       }
 
       // Dodge Title Bounding Boxes
       for (const tb of titleRects) {
         if (lineTop + lineHeight > tb.top && lineTop < tb.bottom) {
-          const titlePadding = 48
-          currentSlotRight = Math.min(currentSlotRight, tb.left - titlePadding)
+          currentSlotRight = Math.min(currentSlotRight, tb.left - HOME_LAYOUT.body.titleDodgePadding)
         }
       }
 
@@ -240,17 +200,17 @@ export class LayoutManager {
 
     // Nav positioning
     if (navContainer) {
-      if (window.innerWidth < 768) {
-        const navPadding = 20
+      if (window.innerWidth < BREAKPOINTS.mobile) {
+        const navPadding = HOME_LAYOUT.nav.mobilePadding
         navContainer.style.left = `${navPadding}px`
         navContainer.style.width = `${window.innerWidth / 2 - navPadding * 2}px`
       } else {
-        const slotLeft = window.innerWidth / 2 + 20
+        const slotLeft = window.innerWidth / 2 + HOME_LAYOUT.nav.desktopXOffset
         const rightWidth = Math.max(0, window.innerWidth - titleRightSpace - slotLeft)
         navContainer.style.left = `${slotLeft}px`
         navContainer.style.width = `${rightWidth}px`
       }
-      navContainer.style.flexDirection = window.innerWidth < 638 ? 'column' : 'row'
+      navContainer.style.flexDirection = window.innerWidth < BREAKPOINTS.smallMobile ? 'column' : 'row'
     }
 
     // Body text DOM pool management
@@ -282,68 +242,99 @@ export class LayoutManager {
     }
   }
 
-  // ========== About 布局（预格式化 ASCII Art，右对齐） ==========
+  // ========== SubPage 布局（预格式化 ASCII Art，右对齐） ==========
 
-  /** 获取 About 所有活跃的文字 DOM 元素 */
-  getAboutElements(): HTMLDivElement[] {
-    return [...this.aboutLinesPool]
+  /** 获取 SubPage 所有活跃的文字 DOM 元素 */
+  getSubPageElements(): HTMLDivElement[] {
+    return [...this.subPageLinesPool]
   }
 
-  /** 获取 About 所有活跃的文字内容 */
-  getAboutTexts(): string[] {
-    return this.aboutLinesPool.map((el) => el.textContent || '')
+  /** 获取 SubPage 所有活跃的文字内容 */
+  getSubPageTexts(): string[] {
+    return this.subPageLinesPool.map((el) => el.textContent || '')
   }
 
   /**
-   * 渲染 About 页 — 预格式化 ASCII Art 框，右对齐。
+   * 渲染子页面 — 预格式化 ASCII Art 框，右对齐。
    * 自动计算字号使最长行恰好填满可用区域。
    */
-  updateAbout(
+  updateSubPage(
+    pageName: Exclude<PageName, 'home'>,
     dynamicLayoutContainer: HTMLDivElement,
     _effectManager: EffectManager,
   ) {
-    const rightMargin = window.innerWidth < 768 ? 20 : 40
+    const content = SITE_CONTENT[pageName]
+    if (!content) return
+    this.currentSubPageContent = content
+
+    const pageConfig = SUB_PAGE_LAYOUT[pageName]
+    const rightMargin = responsive(pageConfig.rightMargin)
+    const leftMargin = responsive(pageConfig.leftMargin)
 
     // 找到最长行的字符数
-    const maxLineLen = Math.max(...this.ABOUT_LINES.map((l) => l.length))
+    const maxLineLen = Math.max(...content.lines.map((l) => l.length))
 
     // 计算可用宽度（屏幕右半侧）
     const availableWidth = Math.max(200, window.innerWidth / 2 - rightMargin)
 
     // 等宽字体：每个字符宽度 ≈ fontSize × 0.6
-    const targetFontSize = Math.max(6, Math.min(16, Math.floor(availableWidth / (maxLineLen * 0.6))))
+    const targetFontSize = Math.max(pageConfig.minFontSize, Math.min(pageConfig.maxFontSize, Math.floor(availableWidth / (maxLineLen * 0.6))))
     const lineHeight = targetFontSize // 与主页一致
 
     // 整体内容高度
-    const totalHeight = this.ABOUT_LINES.length * lineHeight
+    const totalHeight = content.lines.length * lineHeight
+
+    const fontStr = `${targetFontSize}px ${this.HEADLINE_FONT_FAMILY}`
+
+    // ── Scrollable mode ──
+    if (content.scrollable) {
+      this.updateSubPageScrollable(
+        content, pageConfig, dynamicLayoutContainer,
+        rightMargin, leftMargin, maxLineLen,
+        targetFontSize, lineHeight, totalHeight, fontStr,
+      )
+      return
+    }
+
+    // ── Normal (non-scrollable) mode ──
     // 垂直居中
-    const startY = Math.max(20, Math.floor((window.innerHeight - totalHeight) / 2))
+    let startY = Math.max(20, Math.floor((window.innerHeight - totalHeight) / 2))
+
+    if (pageConfig.verticalOffset > 0) {
+      startY += Math.floor(window.innerHeight * pageConfig.verticalOffset)
+    }
 
     // 水平右对齐：从屏幕右边减去 margin
     const rightPos = rightMargin
 
-    const fontStr = `${targetFontSize}px ${this.HEADLINE_FONT_FAMILY}`
-
     // DOM pool management
-    while (this.aboutLinesPool.length < this.ABOUT_LINES.length) {
+    while (this.subPageLinesPool.length < content.lines.length) {
       const el = document.createElement('div')
-      el.className = 'dynamic-line about-line'
+      el.className = 'dynamic-line subpage-line'
       el.style.position = 'absolute'
       el.style.color = 'rgba(0, 0, 0, 0.65)'
       el.style.pointerEvents = 'none'
       el.style.whiteSpace = 'pre'
       el.style.textAlign = 'right'
       dynamicLayoutContainer.appendChild(el)
-      this.aboutLinesPool.push(el)
+      this.subPageLinesPool.push(el)
     }
-    while (this.aboutLinesPool.length > this.ABOUT_LINES.length) {
-      const el = this.aboutLinesPool.pop()!
+    while (this.subPageLinesPool.length > content.lines.length) {
+      const el = this.subPageLinesPool.pop()!
       el.remove()
     }
-    for (let i = 0; i < this.ABOUT_LINES.length; i++) {
-      const el = this.aboutLinesPool[i]!
-      el.textContent = this.ABOUT_LINES[i]!
-      el.style.right = `${rightPos}px`
+    for (let i = 0; i < content.lines.length; i++) {
+      const el = this.subPageLinesPool[i]!
+      el.textContent = content.lines[i]!
+      if (pageConfig.textAlign === 'left') {
+        el.style.left = `${leftMargin}px`
+        el.style.right = ''
+        el.style.textAlign = 'left'
+      } else {
+        el.style.right = `${rightPos}px`
+        el.style.left = ''
+        el.style.textAlign = 'right'
+      }
       el.style.top = `${startY + i * lineHeight}px`
       el.style.font = fontStr
       el.style.lineHeight = `${lineHeight}px`
@@ -351,49 +342,300 @@ export class LayoutManager {
     }
 
     // ---- Badges ----
-    // 计算 badge 行的 Y 位置（紧跟 "My tech stacks:" 后一行的空行）
-    const badgeLineIndex = this.BADGE_ANCHOR_LINE_INDEX + 1 // anchor 的下一行
-    const badgeY = startY + badgeLineIndex * lineHeight + 2
+    if (content.badges && content.badges.length > 0 && content.badgeAnchorLineIndex !== undefined) {
+      // 计算 badge 行的 Y 位置（紧跟 anchor 后一行的空行）
+      const badgeLineIndex = content.badgeAnchorLineIndex + 1
+      const badgeY = startY + badgeLineIndex * lineHeight + 2
 
-    // 计算文本块右边界的 X 坐标（与文字对齐）
-    this.textMaskCtx.font = fontStr
-    const sampleLine = this.ABOUT_LINES[this.BADGE_ANCHOR_LINE_INDEX]!
-    const textBlockWidth = this.textMaskCtx.measureText(sampleLine).width
-    const badgeRight = window.innerWidth - rightMargin
-    const badgeStartX = badgeRight - textBlockWidth + targetFontSize * 0.6 * 4 // 缩进 ~4 字符
+      // 计算文本块右边界的 X 坐标（与文字对齐）
+      this.textMaskCtx.font = fontStr
+      const sampleLine = content.lines[content.badgeAnchorLineIndex]!
+      const textBlockWidth = this.textMaskCtx.measureText(sampleLine).width
+      const badgeRight = window.innerWidth - rightMargin
+      const badgeStartX = pageConfig.textAlign === 'left'
+        ? leftMargin
+        : badgeRight - textBlockWidth + targetFontSize * 0.6 * 4 // 缩进 ~4 字符
 
-    if (!this.badgeContainer) {
-      this.badgeContainer = document.createElement('div')
-      this.badgeContainer.className = 'about-badges'
-      this.badgeContainer.style.position = 'absolute'
-      this.badgeContainer.style.pointerEvents = 'none'
+      if (!this.badgeContainer) {
+        this.badgeContainer = document.createElement('div')
+        this.badgeContainer.className = 'subpage-badges'
+        this.badgeContainer.style.position = 'absolute'
+        this.badgeContainer.style.pointerEvents = 'none'
+        this.badgeContainer.style.display = 'flex'
+        this.badgeContainer.style.flexWrap = 'wrap'
+        this.badgeContainer.style.gap = '4px'
+        this.badgeContainer.style.alignItems = 'center'
+        dynamicLayoutContainer.appendChild(this.badgeContainer)
+      }
+
+      // 确保内容同步
+      const existingImgs = Array.from(this.badgeContainer.querySelectorAll('img'))
+      if (existingImgs.length !== content.badges.length) {
+        this.badgeContainer.innerHTML = ''
+        for (const url of content.badges) {
+          const img = document.createElement('img')
+          img.src = url
+          img.style.height = `${Math.max(12, lineHeight * 1.3)}px`
+          img.style.display = 'block'
+          img.draggable = false
+          this.badgeContainer.appendChild(img)
+        }
+      }
+
+      // 更新 badge 容器位置和大小
+      const badgeAreaWidth = textBlockWidth - targetFontSize * 0.6 * 8 // 左右各缩进 4 字符
+      this.badgeContainer.style.left = `${badgeStartX}px`
+      this.badgeContainer.style.top = `${badgeY}px`
+      this.badgeContainer.style.width = `${badgeAreaWidth}px`
       this.badgeContainer.style.display = 'flex'
-      this.badgeContainer.style.flexWrap = 'wrap'
-      this.badgeContainer.style.gap = '4px'
-      this.badgeContainer.style.alignItems = 'center'
-      dynamicLayoutContainer.appendChild(this.badgeContainer)
 
-      for (const url of this.BADGE_URLS) {
-        const img = document.createElement('img')
-        img.src = url
-        img.style.height = `${Math.max(14, lineHeight * 1.6)}px`
-        img.style.display = 'block'
-        img.draggable = false
-        this.badgeContainer.appendChild(img)
+      // 更新 badge 图片高度
+      const imgs = this.badgeContainer.querySelectorAll('img')
+      imgs.forEach((img) => {
+        ; (img as HTMLImageElement).style.height = `${Math.max(12, lineHeight * 1.3)}px`
+      })
+    } else {
+      if (this.badgeContainer) {
+        this.badgeContainer.style.display = 'none'
       }
     }
 
-    // 更新 badge 容器位置和大小
-    const badgeAreaWidth = textBlockWidth - targetFontSize * 0.6 * 8 // 左右各缩进 4 字符
-    this.badgeContainer.style.left = `${badgeStartX}px`
-    this.badgeContainer.style.top = `${badgeY}px`
-    this.badgeContainer.style.width = `${badgeAreaWidth}px`
+    // ---- Social Badges ----
+    if (content.socialBadges && content.socialBadges.length > 0 && content.socialBadgeAnchorLineIndex !== undefined) {
+      const socialLineIndex = content.socialBadgeAnchorLineIndex + 1
+      const socialY = startY + socialLineIndex * lineHeight + 2
 
-    // 更新 badge 图片高度
-    const imgs = this.badgeContainer.querySelectorAll('img')
-    imgs.forEach((img) => {
-      ;(img as HTMLImageElement).style.height = `${Math.max(14, lineHeight * 1.6)}px`
-    })
+      this.textMaskCtx.font = fontStr
+      const socialSampleLine = content.lines[content.socialBadgeAnchorLineIndex]!
+      const socialTextBlockWidth = this.textMaskCtx.measureText(socialSampleLine).width
+      const socialBadgeRight = window.innerWidth - rightMargin
+      const socialBadgeStartX = pageConfig.textAlign === 'left'
+        ? leftMargin
+        : socialBadgeRight - socialTextBlockWidth + targetFontSize * 0.6 * 4
+
+      if (!this.socialBadgeContainer) {
+        this.socialBadgeContainer = document.createElement('div')
+        this.socialBadgeContainer.className = 'subpage-social-badges'
+        this.socialBadgeContainer.style.position = 'absolute'
+        this.socialBadgeContainer.style.pointerEvents = 'auto'
+        this.socialBadgeContainer.style.display = 'flex'
+        this.socialBadgeContainer.style.flexWrap = 'wrap'
+        this.socialBadgeContainer.style.gap = '4px'
+        this.socialBadgeContainer.style.alignItems = 'center'
+        dynamicLayoutContainer.appendChild(this.socialBadgeContainer)
+      }
+
+      // Sync social badge content
+      const existingSocialImgs = Array.from(this.socialBadgeContainer.querySelectorAll('img'))
+      if (existingSocialImgs.length !== content.socialBadges.length) {
+        this.socialBadgeContainer.innerHTML = ''
+        for (const badge of content.socialBadges) {
+          const wrapper = document.createElement('a')
+          wrapper.style.cursor = 'pointer'
+          wrapper.style.display = 'inline-block'
+          wrapper.style.transition = 'opacity 0.2s ease, transform 0.15s ease'
+          wrapper.addEventListener('mouseenter', () => { wrapper.style.opacity = '0.75'; wrapper.style.transform = 'scale(1.05)' })
+          wrapper.addEventListener('mouseleave', () => { wrapper.style.opacity = '1'; wrapper.style.transform = 'scale(1)' })
+
+          if (badge.action.type === 'link') {
+            wrapper.href = badge.action.url
+            wrapper.target = '_blank'
+            wrapper.rel = 'noopener noreferrer'
+          } else {
+            wrapper.addEventListener('click', (e) => {
+              e.preventDefault()
+              const text = (badge.action as { type: 'copy'; text: string }).text
+              navigator.clipboard.writeText(text).then(() => {
+                this.showCopyToast(text)
+              })
+            })
+          }
+
+          const img = document.createElement('img')
+          img.src = badge.img
+          img.style.height = `${Math.max(12, lineHeight * 1.3)}px`
+          img.style.display = 'block'
+          img.draggable = false
+          wrapper.appendChild(img)
+          this.socialBadgeContainer.appendChild(wrapper)
+        }
+      }
+
+      // Position social badge container
+      const socialBadgeAreaWidth = socialTextBlockWidth - targetFontSize * 0.6 * 8
+      this.socialBadgeContainer.style.left = `${socialBadgeStartX}px`
+      this.socialBadgeContainer.style.top = `${socialY}px`
+      this.socialBadgeContainer.style.width = `${socialBadgeAreaWidth}px`
+      this.socialBadgeContainer.style.display = 'flex'
+
+      // Update social badge img heights
+      const socialImgs = this.socialBadgeContainer.querySelectorAll('img')
+      socialImgs.forEach((img) => {
+        ;(img as HTMLImageElement).style.height = `${Math.max(12, lineHeight * 1.3)}px`
+      })
+    } else {
+      if (this.socialBadgeContainer) {
+        this.socialBadgeContainer.style.display = 'none'
+      }
+    }
+  }
+
+  /** 渲染可滚动子页面 — 长内容在固定区域内部滚动 */
+  private updateSubPageScrollable(
+    content: SubPageContent,
+    pageConfig: (typeof SUB_PAGE_LAYOUT)[keyof typeof SUB_PAGE_LAYOUT],
+    dynamicLayoutContainer: HTMLDivElement,
+    rightMargin: number,
+    leftMargin: number,
+    maxLineLen: number,
+    targetFontSize: number,
+    lineHeight: number,
+    totalHeight: number,
+    fontStr: string,
+  ) {
+    // Inject scrollbar CSS once
+    if (!document.getElementById('subpage-scroll-style')) {
+      const style = document.createElement('style')
+      style.id = 'subpage-scroll-style'
+      style.textContent = `
+        .subpage-scroll-container::-webkit-scrollbar {
+          width: 4px;
+        }
+        .subpage-scroll-container::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .subpage-scroll-container::-webkit-scrollbar-thumb {
+          background: rgba(0, 0, 0, 0.15);
+          border-radius: 2px;
+        }
+        .subpage-scroll-container::-webkit-scrollbar-thumb:hover {
+          background: rgba(0, 0, 0, 0.3);
+        }
+        .subpage-scroll-container {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(0,0,0,0.15) transparent;
+        }
+      `
+      document.head.appendChild(style)
+    }
+
+    // Container top/bottom margins
+    const containerTopMargin = 80
+    const containerBottomMargin = 100
+    const containerHeight = window.innerHeight - containerTopMargin - containerBottomMargin
+
+    // Create or reuse scroll container
+    if (!this.scrollContainer) {
+      this.scrollContainer = document.createElement('div')
+      this.scrollContainer.className = 'subpage-scroll-container'
+      this.scrollContainer.style.position = 'absolute'
+      this.scrollContainer.style.overflowY = 'auto'
+      this.scrollContainer.style.overflowX = 'hidden'
+      this.scrollContainer.style.pointerEvents = 'auto'
+
+      this.scrollInnerWrapper = document.createElement('div')
+      this.scrollInnerWrapper.style.position = 'relative'
+      this.scrollInnerWrapper.style.display = 'flex'
+      this.scrollInnerWrapper.style.flexDirection = 'column'
+      this.scrollInnerWrapper.style.width = 'max-content'
+
+      this.scrollContainer.appendChild(this.scrollInnerWrapper)
+      dynamicLayoutContainer.appendChild(this.scrollContainer)
+    }
+
+    // Position the scroll container
+    this.scrollContainer.style.top = `${containerTopMargin}px`
+    this.scrollContainer.style.height = `${containerHeight}px`
+    this.scrollContainer.style.maxWidth = `${Math.max(200, window.innerWidth / 2 - rightMargin)}px`
+
+    if (pageConfig.textAlign === 'left') {
+      this.scrollContainer.style.left = `${leftMargin}px`
+      this.scrollContainer.style.right = ''
+      this.scrollContainer.style.width = 'auto'
+      this.scrollInnerWrapper!.style.alignItems = 'flex-start'
+    } else {
+      this.scrollContainer.style.right = `${rightMargin}px`
+      this.scrollContainer.style.left = ''
+      this.scrollContainer.style.width = 'auto'
+      this.scrollInnerWrapper!.style.alignItems = 'flex-end'
+    }
+
+    // Let content define the horizontal footprint so the block does not feel like a fixed-width column.
+    this.scrollInnerWrapper!.style.height = 'auto'
+
+    // DOM pool — lines go inside scrollInnerWrapper
+    const parent = this.scrollInnerWrapper!
+    while (this.subPageLinesPool.length < content.lines.length) {
+      const el = document.createElement('div')
+      el.className = 'dynamic-line subpage-line'
+      el.style.position = 'relative'
+      el.style.display = 'block'
+      el.style.color = 'rgba(0, 0, 0, 0.65)'
+      el.style.pointerEvents = 'none'
+      el.style.whiteSpace = 'pre'
+      parent.appendChild(el)
+      this.subPageLinesPool.push(el)
+    }
+    while (this.subPageLinesPool.length > content.lines.length) {
+      const el = this.subPageLinesPool.pop()!
+      el.remove()
+    }
+    for (let i = 0; i < content.lines.length; i++) {
+      const el = this.subPageLinesPool[i]!
+      el.textContent = content.lines[i]!
+
+      if (pageConfig.textAlign === 'left') {
+        el.style.textAlign = 'left'
+      } else {
+        el.style.textAlign = 'right'
+      }
+
+      el.style.font = fontStr
+      el.style.lineHeight = `${lineHeight}px`
+      el.style.letterSpacing = '0px'
+      el.style.left = ''
+      el.style.right = ''
+      el.style.top = ''
+      el.style.width = 'max-content'
+    }
+  }
+
+  /** 显示复制成功的提示 */
+  private showCopyToast(text: string) {
+    if (!this.copyToast) {
+      this.copyToast = document.createElement('div')
+      this.copyToast.style.position = 'fixed'
+      this.copyToast.style.top = '40px'
+      this.copyToast.style.left = '50%'
+      this.copyToast.style.transform = 'translateX(-50%)'
+      this.copyToast.style.backgroundColor = '#ffffff'
+      this.copyToast.style.color = '#595959'
+      this.copyToast.style.border = '1px solid #595959'
+      this.copyToast.style.padding = '10px 20px'
+      this.copyToast.style.fontFamily = "'Courier New', 'DinkieBitmap 9px', Courier, monospace"
+      this.copyToast.style.fontSize = '14px'
+      this.copyToast.style.fontWeight = 'bold'
+      this.copyToast.style.zIndex = '1000'
+      this.copyToast.style.pointerEvents = 'none'
+      this.copyToast.style.opacity = '0'
+      this.copyToast.style.transition = 'opacity 0.3s ease, margin-top 0.3s ease'
+      this.copyToast.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+      document.body.appendChild(this.copyToast)
+    }
+
+    this.copyToast.textContent = `> Copied: ${text}`
+    this.copyToast.style.marginTop = '0'
+    this.copyToast.style.opacity = '1'
+
+    // 简单的小动画效果
+    this.copyToast.style.marginTop = '10px'
+
+    setTimeout(() => {
+      if (this.copyToast) {
+        this.copyToast.style.opacity = '0'
+        this.copyToast.style.marginTop = '0'
+      }
+    }, 2000)
   }
 
   /** 获取 badge 容器元素（用于动画） */
@@ -401,57 +643,113 @@ export class LayoutManager {
     return this.badgeContainer
   }
 
-  /** 获取 About 页面的所有文本块区域，用于 ASCII 规避（精确到行） */
-  getAboutRects(): { x: number; y: number; width: number; height: number }[] {
+  /** 获取 social badge 容器元素（用于动画） */
+  getSocialBadgeContainer(): HTMLDivElement | null {
+    return this.socialBadgeContainer
+  }
+
+  /** 获取 SubPage 页面的所有文本块区域，用于 ASCII 规避（精确到行） */
+  getSubPageRects(): { x: number; y: number; width: number; height: number }[] {
     const rects: { x: number; y: number; width: number; height: number }[] = []
+    if (!this.currentSubPageContent) return rects
+
+    // Scrollable mode: dodge only the visible text lines so the ASCII wrap is not a rigid column.
+    if (this.scrollContainer) {
+      const containerRect = this.scrollContainer.getBoundingClientRect()
+      for (let i = 0; i < this.subPageLinesPool.length; i++) {
+        const el = this.subPageLinesPool[i]!
+        const lineText = this.currentSubPageContent.lines[i]!
+
+        if (lineText.trim() === '鈺?' || lineText.trim() === '') continue
+
+        const domRect = el.getBoundingClientRect()
+        const visibleTop = Math.max(domRect.top, containerRect.top)
+        const visibleBottom = Math.min(domRect.bottom, containerRect.bottom)
+
+        if (visibleBottom <= visibleTop) continue
+
+        rects.push({
+          x: domRect.left,
+          y: visibleTop,
+          width: domRect.width,
+          height: visibleBottom - visibleTop,
+        })
+      }
+      return rects
+    }
 
     // 1. 文字行避让（精确到每一行，避免大块空白区域也被避让）
-    for (let i = 0; i < this.aboutLinesPool.length; i++) {
-      const el = this.aboutLinesPool[i]!
-      const lineText = this.ABOUT_LINES[i]!
-      
+    for (let i = 0; i < this.subPageLinesPool.length; i++) {
+      const el = this.subPageLinesPool[i]!
+      const lineText = this.currentSubPageContent.lines[i]!
+
       // 跳过纯空行，减少计算量并允许背景穿透
       if (lineText.trim() === '║' || lineText.trim() === '') continue
 
-      // 计算该行的精确像素宽度
-      this.textMaskCtx.font = el.style.font
-      const lineWidth = this.textMaskCtx.measureText(lineText).width
-      const rightMargin = parseFloat(el.style.right) || 0
-      
-      // 计算该行相对于屏幕左侧的 X 坐标
-      const x = window.innerWidth - rightMargin - lineWidth
+      const domRect = el.getBoundingClientRect()
 
       rects.push({
-        x: x,
-        y: parseFloat(el.style.top),
-        width: lineWidth,
-        height: parseFloat(el.style.lineHeight) || 16,
+        x: domRect.left,
+        y: domRect.top,
+        width: domRect.width,
+        height: domRect.height,
       })
     }
 
     // 2. Badge 容器避让
-    if (this.badgeContainer) {
+    if (this.badgeContainer && this.badgeContainer.style.display !== 'none') {
+      const badgeRect = this.badgeContainer.getBoundingClientRect()
+
       rects.push({
-        x: parseFloat(this.badgeContainer.style.left),
-        y: parseFloat(this.badgeContainer.style.top),
-        width: parseFloat(this.badgeContainer.style.width),
-        height: this.badgeContainer.offsetHeight || 40,
+        x: badgeRect.left,
+        y: badgeRect.top,
+        width: badgeRect.width,
+        height: badgeRect.height,
+      })
+    }
+
+    // 3. Social Badge 容器避让
+    if (this.socialBadgeContainer && this.socialBadgeContainer.style.display !== 'none') {
+      const socialRect = this.socialBadgeContainer.getBoundingClientRect()
+
+      rects.push({
+        x: socialRect.left,
+        y: socialRect.top,
+        width: socialRect.width,
+        height: socialRect.height,
       })
     }
 
     return rects
   }
 
-  /** 清除 About 的 DOM 元素 */
-  clearAbout() {
-    for (const el of this.aboutLinesPool) {
+  /** 清除 SubPage 的 DOM 元素 */
+  clearSubPage() {
+    for (const el of this.subPageLinesPool) {
       el.remove()
     }
-    this.aboutLinesPool = []
+    this.subPageLinesPool = []
+    this.currentSubPageContent = null
+
+    if (this.scrollContainer) {
+      this.scrollContainer.remove()
+      this.scrollContainer = null
+      this.scrollInnerWrapper = null
+    }
 
     if (this.badgeContainer) {
       this.badgeContainer.remove()
       this.badgeContainer = null
+    }
+
+    if (this.socialBadgeContainer) {
+      this.socialBadgeContainer.remove()
+      this.socialBadgeContainer = null
+    }
+
+    if (this.copyToast) {
+      this.copyToast.remove()
+      this.copyToast = null
     }
   }
 
