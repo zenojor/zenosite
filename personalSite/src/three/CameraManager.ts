@@ -20,7 +20,7 @@ const CAMERA_VIEWS: Record<string, CameraViewDef> = {
     lookAt: new THREE.Vector3(-4, 0, 0),
   },
   experience: {
-    position: new THREE.Vector3(10, 3, 6),
+    position: new THREE.Vector3(5, 0, 10),
     lookAt: new THREE.Vector3(-4, 0, 0),
   },
   projects: {

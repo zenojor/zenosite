@@ -1,5 +1,7 @@
 import { prepareWithSegments, layoutNextLine, type LayoutCursor, type PreparedTextWithSegments } from '@chenglou/pretext'
 import type { EffectManager } from './EffectManager'
+import { SITE_CONTENT, type SubPageContent } from '../state/siteContent'
+import type { PageName } from '../state/siteState'
 import gsap from 'gsap'
 
 export class LayoutManager {
@@ -32,51 +34,12 @@ export class LayoutManager {
   // 2D canvas for text measurement
   private textMaskCtx: CanvasRenderingContext2D
 
-  // ========== About 布局 (Dynamic) ==========
-  private readonly ABOUT_LOGO = [
-    ' _______  _______  __    _  _______        ___   _______         _______        ______   _______  __   __ ',
-    '|       ||       ||  |  | ||       |      |   | |       |       |   _   |      |      | |       ||  | |  |',
-    '|____   ||    ___||   |_| ||   _   |      |   | |  _____| ____  |  |_|  |      |  _    ||    ___||  |_|  |',
-    ' ____|  ||   |___ |       ||  | |  |      |   | | |_____ |____| |       |      | | |   ||   |___ |       |',
-    '| ______||    ___||  _    ||  |_|  | ___  |   | |_____  |       |       | ___  | |_|   ||    ___||       |',
-    '| |_____ |   |___ | | |   ||       ||   | |   |  _____| |       |   _   ||   | |       ||   |___  |     | ',
-    '|_______||_______||_|  |__||_______||___| |___| |_______|       |__| |__||___| |______| |_______|  |___|  ',
-  ]
-  private readonly ABOUT_CONTENT = [
-    "",
-    "> Hi, I'm Zeno.",
-    "",
-    "  I am a student majoring in Intelligent Science and Technology at Southwest University.",
-    "  Currently, I am honing my skills in front-end development with the ultimate goal",
-    "  of becoming a professional Front-end or Full-stack Software Engineer.",
-    "",
-    "  I built this website to serve as more than just a digital business card. Like many creators,",
-    "  I wanted a dedicated space to curate my projects and push the boundaries of my potential.",
-    "",
-    "  Moving forward, I plan to launch a technical blog here to share my insights and journey",
-    "  through various tech stacks.",
-    "",
-    "> My tech stacks:",
-  ]
-  private aboutContainer: HTMLDivElement | null = null
-  private aboutLinesPool: HTMLDivElement[] = []
+  // ========== SubPage 布局（预格式化 ASCII Art） ==========
+  private currentSubPageContent: SubPageContent | null = null
+  private subPageLinesPool: HTMLDivElement[] = []
 
   // ========== Badges ==========
-  private readonly BADGE_URLS = [
-    'https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=fff',
-    'https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=000',
-    'https://img.shields.io/badge/C-00599C?logo=c&logoColor=white',
-    'https://img.shields.io/badge/Java-%23ED8B00.svg?logo=openjdk&logoColor=white',
-    'https://img.shields.io/badge/Vue.js-4FC08D?logo=vuedotjs&logoColor=fff',
-    'https://img.shields.io/badge/React-%2320232a.svg?logo=react&logoColor=%2361DAFB',
-    'https://img.shields.io/badge/Three.js-000?logo=threedotjs&logoColor=fff',
-    'https://img.shields.io/badge/WebGL-990000?logo=webgl&logoColor=white',
-    'https://img.shields.io/badge/Node.js-6DA55F?logo=node.js&logoColor=white',
-    'https://img.shields.io/badge/Next.js-black?logo=next.js&logoColor=white',
-  ]
   private badgeContainer: HTMLDivElement | null = null
-  // "My tech stacks:" 所在行的索引（0-based），badges 从其下一行开始渲染
-  private readonly BADGE_ANCHOR_LINE_INDEX = 25 // '> My tech stacks:' line
 
   /**
    * 主页文字可见度：0 = 全部空格，1 = 正常显示。
@@ -274,112 +237,145 @@ export class LayoutManager {
     }
   }
 
-  // ========== About 布局（预格式化 ASCII Art，右对齐） ==========
+  // ========== SubPage 布局（预格式化 ASCII Art，右对齐） ==========
 
-  /** 获取 About 所有活跃的文字 DOM 元素 */
-  getAboutElements(): HTMLDivElement[] {
-    return [...this.aboutLinesPool]
+  /** 获取 SubPage 所有活跃的文字 DOM 元素 */
+  getSubPageElements(): HTMLDivElement[] {
+    return [...this.subPageLinesPool]
   }
 
-  /** 获取 About 所有活跃的文字内容 */
-  getAboutTexts(): string[] {
-    return this.aboutLinesPool.map((el) => el.textContent || '')
+  /** 获取 SubPage 所有活跃的文字内容 */
+  getSubPageTexts(): string[] {
+    return this.subPageLinesPool.map((el) => el.textContent || '')
   }
 
   /**
-   * 渲染 About 页 — 动态适配边框
+   * 渲染子页面 — 预格式化 ASCII Art 框，右对齐。
+   * 自动计算字号使最长行恰好填满可用区域。
    */
-  updateAbout(
+  updateSubPage(
+    pageName: Exclude<PageName, 'home'>,
     dynamicLayoutContainer: HTMLDivElement,
     _effectManager: EffectManager,
   ) {
-    const rightMargin = window.innerWidth < 768 ? 20 : 60
-    const allLines = [...this.ABOUT_LOGO, ...this.ABOUT_CONTENT]
-    
-    // 找到文字部分最长行的字符数
-    const maxLineLen = Math.max(...allLines.map((l) => l.length))
-    
-    // 计算可用宽度（屏幕右半侧，有一定边距）
-    const availableWidth = Math.min(680, Math.max(300, window.innerWidth * 0.5 - rightMargin))
-    
-    // 等宽字体适应宽度
-    const targetFontSize = Math.max(8, Math.min(14, Math.floor(availableWidth / (maxLineLen * 0.58))))
-    const lineHeight = targetFontSize * 1.15
+    const content = SITE_CONTENT[pageName]
+    if (!content) return
+    this.currentSubPageContent = content
+
+    const rightMargin = window.innerWidth < 768 ? 16 : 36
+    const leftMargin = window.innerWidth < 768 ? 40 : 120
+    const isExperiencePage = pageName === 'experience'
+
+    // 找到最长行的字符数
+    const maxLineLen = Math.max(...content.lines.map((l) => l.length))
+
+    // 计算可用宽度（屏幕右半侧）
+    const availableWidth = Math.max(200, window.innerWidth / 2 - rightMargin)
+
+    // 等宽字体：每个字符宽度 ≈ fontSize × 0.6
+    const targetFontSize = Math.max(6, Math.min(16, Math.floor(availableWidth / (maxLineLen * 0.6))))
+    const lineHeight = targetFontSize // 与主页一致
+
+    // 整体内容高度
+    const totalHeight = content.lines.length * lineHeight
+    // 垂直居中
+    const startY = Math.max(20, Math.floor((window.innerHeight - totalHeight) / 2))
+
+    // 水平右对齐：从屏幕右边减去 margin
+    const rightPos = rightMargin
+
     const fontStr = `${targetFontSize}px ${this.HEADLINE_FONT_FAMILY}`
 
-    if (!this.aboutContainer) {
-      this.aboutContainer = document.createElement('div')
-      this.aboutContainer.className = 'about-container'
-      this.aboutContainer.style.position = 'absolute'
-      this.aboutContainer.style.border = '1px solid #000'
-      this.aboutContainer.style.background = '#fff'
-      this.aboutContainer.style.padding = `${targetFontSize * 1.5}px`
-      this.aboutContainer.style.boxShadow = '4px 4px 0px rgba(0,0,0,0.1)'
-      this.aboutContainer.style.display = 'flex'
-      this.aboutContainer.style.flexDirection = 'column'
-      this.aboutContainer.style.pointerEvents = 'none'
-      dynamicLayoutContainer.appendChild(this.aboutContainer)
-    }
-
-    // 更新容器样式 (响应式)
-    this.aboutContainer.style.right = `${rightMargin}px`
-    this.aboutContainer.style.width = `${availableWidth}px`
-    this.aboutContainer.style.padding = `${targetFontSize * 1.5}px`
-    
-    // 垂直居中
-    const totalContentHeight = allLines.length * lineHeight + 40 // 40 为预估 badge 空间
-    const startY = Math.max(40, Math.floor((window.innerHeight - totalContentHeight) / 2))
-    this.aboutContainer.style.top = `${startY}px`
-
-    // DOM pool management for lines inside container
-    while (this.aboutLinesPool.length < allLines.length) {
+    // DOM pool management
+    while (this.subPageLinesPool.length < content.lines.length) {
       const el = document.createElement('div')
-      el.className = 'dynamic-line about-line'
-      el.style.color = 'rgba(0, 0, 0, 0.75)'
+      el.className = 'dynamic-line subpage-line'
+      el.style.position = 'absolute'
+      el.style.color = 'rgba(0, 0, 0, 0.65)'
+      el.style.pointerEvents = 'none'
       el.style.whiteSpace = 'pre'
-      el.style.minHeight = `${lineHeight}px`
-      this.aboutContainer.appendChild(el)
-      this.aboutLinesPool.push(el)
+      el.style.textAlign = 'right'
+      dynamicLayoutContainer.appendChild(el)
+      this.subPageLinesPool.push(el)
     }
-    while (this.aboutLinesPool.length > allLines.length) {
-      const el = this.aboutLinesPool.pop()!
+    while (this.subPageLinesPool.length > content.lines.length) {
+      const el = this.subPageLinesPool.pop()!
       el.remove()
     }
-
-    for (let i = 0; i < allLines.length; i++) {
-      const el = this.aboutLinesPool[i]!
-      el.textContent = allLines[i]!
+    for (let i = 0; i < content.lines.length; i++) {
+      const el = this.subPageLinesPool[i]!
+      el.textContent = content.lines[i]!
+      if (isExperiencePage) {
+        el.style.left = `${leftMargin}px`
+        el.style.right = ''
+        el.style.textAlign = 'left'
+      } else {
+        el.style.right = `${rightPos}px`
+        el.style.left = ''
+        el.style.textAlign = 'right'
+      }
+      el.style.top = `${startY + i * lineHeight}px`
       el.style.font = fontStr
       el.style.lineHeight = `${lineHeight}px`
+      el.style.letterSpacing = '0px'
     }
 
     // ---- Badges ----
-    if (!this.badgeContainer) {
-      this.badgeContainer = document.createElement('div')
-      this.badgeContainer.className = 'about-badges'
-      this.badgeContainer.style.marginTop = '12px'
-      this.badgeContainer.style.display = 'flex'
-      this.badgeContainer.style.flexWrap = 'wrap'
-      this.badgeContainer.style.gap = '6px'
-      this.badgeContainer.style.alignItems = 'center'
-      this.badgeContainer.style.paddingLeft = `${targetFontSize * 1.5}px`
-      this.aboutContainer.appendChild(this.badgeContainer)
+    if (content.badges && content.badges.length > 0 && content.badgeAnchorLineIndex !== undefined) {
+      // 计算 badge 行的 Y 位置（紧跟 anchor 后一行的空行）
+      const badgeLineIndex = content.badgeAnchorLineIndex + 1
+      const badgeY = startY + badgeLineIndex * lineHeight + 2
 
-      for (const url of this.BADGE_URLS) {
-        const img = document.createElement('img')
-        img.src = url
-        img.style.height = `20px`
-        img.draggable = false
-        this.badgeContainer.appendChild(img)
+      // 计算文本块右边界的 X 坐标（与文字对齐）
+      this.textMaskCtx.font = fontStr
+      const sampleLine = content.lines[content.badgeAnchorLineIndex]!
+      const textBlockWidth = this.textMaskCtx.measureText(sampleLine).width
+      const badgeRight = window.innerWidth - rightMargin
+      const badgeStartX = badgeRight - textBlockWidth + targetFontSize * 0.6 * 4 // 缩进 ~4 字符
+
+      if (!this.badgeContainer) {
+        this.badgeContainer = document.createElement('div')
+        this.badgeContainer.className = 'subpage-badges'
+        this.badgeContainer.style.position = 'absolute'
+        this.badgeContainer.style.pointerEvents = 'none'
+        this.badgeContainer.style.display = 'flex'
+        this.badgeContainer.style.flexWrap = 'wrap'
+        this.badgeContainer.style.gap = '4px'
+        this.badgeContainer.style.alignItems = 'center'
+        dynamicLayoutContainer.appendChild(this.badgeContainer)
+      }
+
+      // 确保内容同步
+      const existingImgs = Array.from(this.badgeContainer.querySelectorAll('img'))
+      if (existingImgs.length !== content.badges.length) {
+        this.badgeContainer.innerHTML = ''
+        for (const url of content.badges) {
+          const img = document.createElement('img')
+          img.src = url
+          img.style.height = `${Math.max(14, lineHeight * 1.6)}px`
+          img.style.display = 'block'
+          img.draggable = false
+          this.badgeContainer.appendChild(img)
+        }
+      }
+
+      // 更新 badge 容器位置和大小
+      const badgeAreaWidth = textBlockWidth - targetFontSize * 0.6 * 8 // 左右各缩进 4 字符
+      this.badgeContainer.style.left = `${badgeStartX}px`
+      this.badgeContainer.style.top = `${badgeY}px`
+      this.badgeContainer.style.width = `${badgeAreaWidth}px`
+      this.badgeContainer.style.display = 'flex'
+
+      // 更新 badge 图片高度
+      const imgs = this.badgeContainer.querySelectorAll('img')
+      imgs.forEach((img) => {
+        ; (img as HTMLImageElement).style.height = `${Math.max(14, lineHeight * 1.6)}px`
+      })
+    } else {
+      if (this.badgeContainer) {
+        this.badgeContainer.style.display = 'none'
       }
     }
-
-    // 更新 badge 图片高度
-    const badgeImgHeight = Math.max(16, targetFontSize * 1.8)
-    const imgs = this.badgeContainer.querySelectorAll('img')
-    imgs.forEach((img) => {
-      ;(img as HTMLImageElement).style.height = `${badgeImgHeight}px`
-    })
   }
 
   /** 获取 badge 容器元素（用于动画） */
@@ -387,25 +383,26 @@ export class LayoutManager {
     return this.badgeContainer
   }
 
-  /** 获取 About 页面的所有文本块区域，用于 ASCII 规避 */
-  getAboutRects(): { x: number; y: number; width: number; height: number }[] {
+  /** 获取 SubPage 页面的所有文本块区域，用于 ASCII 规避（精确到行） */
+  getSubPageRects(): { x: number; y: number; width: number; height: number }[] {
     const rects: { x: number; y: number; width: number; height: number }[] = []
+    if (!this.currentSubPageContent) return rects
 
     // 1. 文字行避让（精确到每一行，避免大块空白区域也被避让）
-    for (let i = 0; i < this.aboutLinesPool.length; i++) {
-      const el = this.aboutLinesPool[i]!
-      const lineText = this.ABOUT_LINES[i]!
-      
+    for (let i = 0; i < this.subPageLinesPool.length; i++) {
+      const el = this.subPageLinesPool[i]!
+      const lineText = this.currentSubPageContent.lines[i]!
+
       // 跳过纯空行，减少计算量并允许背景穿透
       if (lineText.trim() === '║' || lineText.trim() === '') continue
 
       // 计算该行的精确像素宽度
       this.textMaskCtx.font = el.style.font
       const lineWidth = this.textMaskCtx.measureText(lineText).width
-      const rightMargin = parseFloat(el.style.right) || 0
-      
+      const domRect = el.getBoundingClientRect()
+
       // 计算该行相对于屏幕左侧的 X 坐标
-      const x = window.innerWidth - rightMargin - lineWidth
+      const x = domRect.left
 
       rects.push({
         x: x,
@@ -416,7 +413,7 @@ export class LayoutManager {
     }
 
     // 2. Badge 容器避让
-    if (this.badgeContainer) {
+    if (this.badgeContainer && this.badgeContainer.style.display !== 'none') {
       rects.push({
         x: parseFloat(this.badgeContainer.style.left),
         y: parseFloat(this.badgeContainer.style.top),
@@ -428,12 +425,13 @@ export class LayoutManager {
     return rects
   }
 
-  /** 清除 About 的 DOM 元素 */
-  clearAbout() {
-    for (const el of this.aboutLinesPool) {
+  /** 清除 SubPage 的 DOM 元素 */
+  clearSubPage() {
+    for (const el of this.subPageLinesPool) {
       el.remove()
     }
-    this.aboutLinesPool = []
+    this.subPageLinesPool = []
+    this.currentSubPageContent = null
 
     if (this.badgeContainer) {
       this.badgeContainer.remove()
