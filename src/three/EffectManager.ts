@@ -31,6 +31,7 @@ export interface SubPageAsciiOptions {
   overlayOffsetX?: number
   overlayOffsetY?: number
   zoom?: number
+  trackModelCenter?: boolean
   verticalShiftFactor?: number
   modelSearchRadius?: number
   domPaddingX?: number
@@ -380,7 +381,7 @@ export class EffectManager {
 
     // 1. 获取追踪目标中心
     const projectionTarget = new THREE.Vector3(0, 0, 0)
-    if (model) {
+    if ((options.trackModelCenter ?? true) && model) {
       model.updateMatrixWorld()
       const box = new THREE.Box3().setFromObject(model)
       box.getCenter(projectionTarget)

@@ -18,6 +18,10 @@ export function responsive<T>(values: { desktop: T; mobile: T }): T {
   return window.innerWidth < BREAKPOINTS.mobile ? values.mobile : values.desktop
 }
 
+export function isMobileViewport() {
+  return window.innerWidth < BREAKPOINTS.mobile
+}
+
 // ───────────────────── 相机参数 ─────────────────────
 export const CAMERA_CONFIG = {
   fov: 45,
@@ -125,6 +129,16 @@ export const SUB_PAGE_LAYOUT: Record<
 export const ASCII_CONFIG = {
   charWidth: 11.8,
   charHeight: 18,
+  mobile: {
+    zoom: 1.82,
+    overlayOffsetX: 0,
+    overlayOffsetY: 0,
+    verticalShiftFactor: 0.14,
+    trackModelCenter: false,
+    modelSearchRadius: 2,
+    domPaddingX: 0,
+    domPaddingY: 0,
+  },
 
   /** 主页 ASCII */
   home: {

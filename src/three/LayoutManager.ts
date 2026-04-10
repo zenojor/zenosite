@@ -724,6 +724,18 @@ export class LayoutManager {
   }
 
   /** 清除 SubPage 的 DOM 元素 */
+  clearHome() {
+    for (const el of this.titleLinesPool) {
+      el.remove()
+    }
+    this.titleLinesPool = []
+
+    for (const el of this.textLinesPool) {
+      el.remove()
+    }
+    this.textLinesPool = []
+  }
+
   clearSubPage() {
     for (const el of this.subPageLinesPool) {
       el.remove()
@@ -751,6 +763,11 @@ export class LayoutManager {
       this.copyToast.remove()
       this.copyToast = null
     }
+  }
+
+  clearAll() {
+    this.clearHome()
+    this.clearSubPage()
   }
 
   /**

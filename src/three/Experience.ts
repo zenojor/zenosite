@@ -6,8 +6,8 @@ import { World } from './World'
 import { EffectManager } from './EffectManager'
 import { LayoutManager } from './LayoutManager'
 import { TextAnimator } from './TextAnimator'
-import { activePage, type PageName } from '../state/siteState'
-import { ASCII_CONFIG, responsive } from '../state/siteConfig'
+import { activePage, setPage, isAppTransitioning, type PageName } from '../state/siteState'
+import { ASCII_CONFIG, isMobileViewport, responsive } from '../state/siteConfig'
 
 export interface ExperienceDOMRefs {
   canvas: HTMLCanvasElement
@@ -31,11 +31,14 @@ export class Experience {
   private domRefs: ExperienceDOMRefs
 
   private currentPage: PageName = 'home'
-  private isTransitioning = false
   private runHomeDuringTransition = false
   private runSubPageDuringTransition = false
 
   private stopWatcher: (() => void) | null = null
+
+  private get isMobileMode() {
+    return isMobileViewport()
+  }
 
   constructor(refs: ExperienceDOMRefs) {
     this.domRefs = refs
@@ -53,8 +56,18 @@ export class Experience {
     this.effectManager = new EffectManager()
     this.layoutManager = new LayoutManager()
 
+    if (this.isMobileMode && activePage.value !== 'home') {
+      setPage('home', true)
+    }
+
     this.stopWatcher = watch(activePage, (newPage, oldPage) => {
-      if (newPage !== oldPage && !this.isTransitioning) {
+      if (this.isMobileMode) {
+        if (newPage !== 'home') setPage('home')
+        this.currentPage = 'home'
+        return
+      }
+
+      if (newPage !== oldPage && !isAppTransitioning.value) {
         this.handlePageTransition(oldPage, newPage)
       }
     })
@@ -70,13 +83,46 @@ export class Experience {
       if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'flex'
     }
 
+    this.syncViewportMode()
     window.addEventListener('resize', this.onResize)
     this.animate()
   }
 
+  private syncViewportMode() {
+    if (this.isMobileMode) {
+      this.currentPage = 'home'
+      if (this.cameraManager.getMode() !== 'orbit') {
+        void this.cameraManager.transitionTo('home', 0.6)
+      }
+      this.layoutManager.clearAll()
+      this.effectManager.clearAsciiPool()
+      this.domRefs.dynamicLayoutContainer.style.display = 'none'
+      if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'none'
+      if (this.domRefs.backButton) this.domRefs.backButton.style.display = 'none'
+      return
+    }
+
+    this.domRefs.dynamicLayoutContainer.style.display = 'block'
+
+    if (activePage.value !== 'home') {
+      this.currentPage = activePage.value
+      if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'none'
+      if (this.domRefs.backButton) this.domRefs.backButton.style.display = 'block'
+    } else {
+      this.currentPage = 'home'
+      if (this.domRefs.backButton) this.domRefs.backButton.style.display = 'none'
+      if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'flex'
+    }
+  }
+
   private async handlePageTransition(from: PageName, to: PageName) {
-    if (this.isTransitioning) return
-    this.isTransitioning = true
+    if (this.isMobileMode) {
+      this.currentPage = 'home'
+      return
+    }
+
+    if (isAppTransitioning.value) return
+    isAppTransitioning.value = true
 
     const navSpans = Array.from(this.domRefs.navContainer?.querySelectorAll('span') || []) as unknown as HTMLDivElement[]
     const navTexts = ['About', 'Experience', 'Projects', 'Contact']
@@ -182,7 +228,7 @@ export class Experience {
       this.runSubPageDuringTransition = false
     }
 
-    this.isTransitioning = false
+    isAppTransitioning.value = false
   }
 
   private animate = () => {
@@ -196,8 +242,33 @@ export class Experience {
     // 1. 鍏ㄥ睆鍓奖锛堢敤浜庤閬垮疄闄呬汉鐗╀綅缃級
     this.effectManager.renderSilhouettePass(this.renderer, this.scene, camera, this.world.groundMirror)
 
-    const isHome = (this.currentPage === 'home' && !this.isTransitioning) || (this.isTransitioning && this.runHomeDuringTransition)
-    const isSubPage = (this.currentPage !== 'home' && !this.isTransitioning) || (this.isTransitioning && this.runSubPageDuringTransition)
+    if (this.isMobileMode) {
+      this.effectManager.renderSubPageAsciiPass(
+        this.renderer,
+        this.scene,
+        camera,
+        this.world.groundMirror,
+        this.domRefs.asciiContainer,
+        {
+          domObstacles: [],
+          overlayOffsetX: ASCII_CONFIG.mobile.overlayOffsetX,
+          overlayOffsetY: ASCII_CONFIG.mobile.overlayOffsetY,
+          zoom: ASCII_CONFIG.mobile.zoom,
+          trackModelCenter: ASCII_CONFIG.mobile.trackModelCenter,
+          verticalShiftFactor: ASCII_CONFIG.mobile.verticalShiftFactor,
+          modelSearchRadius: ASCII_CONFIG.mobile.modelSearchRadius,
+          domPaddingX: ASCII_CONFIG.mobile.domPaddingX,
+          domPaddingY: ASCII_CONFIG.mobile.domPaddingY,
+        },
+        this.world.model
+      )
+
+      this.renderer.render(this.scene, camera)
+      return
+    }
+
+    const isHome = (this.currentPage === 'home' && !isAppTransitioning.value) || (isAppTransitioning.value && this.runHomeDuringTransition)
+    const isSubPage = (this.currentPage !== 'home' && !isAppTransitioning.value) || (isAppTransitioning.value && this.runSubPageDuringTransition)
 
     // 2. 涓婚〉甯冨眬
     if (isHome) {
@@ -245,7 +316,7 @@ export class Experience {
     }
 
     // 4. SubPage 甯冨眬閬块殰
-    if (this.currentPage !== 'home' && !this.isTransitioning) {
+    if (this.currentPage !== 'home' && !isAppTransitioning.value) {
       const p = this.currentPage as Exclude<PageName, 'home'>
       this.layoutManager.updateSubPage(p, this.domRefs.dynamicLayoutContainer, this.effectManager)
     }
@@ -258,6 +329,10 @@ export class Experience {
     this.renderer.setSize(window.innerWidth, window.innerHeight)
     this.world.onResize()
     this.effectManager.onResize()
+    if (this.isMobileMode && activePage.value !== 'home') {
+      setPage('home', true)
+    }
+    this.syncViewportMode()
   }
 
   dispose() {
