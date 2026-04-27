@@ -1,9 +1,3 @@
-@font-face {
-  font-family: 'DinkieBitmap 9px';
-  src: url('./DinkieBitmap 9px.ttf') format('truetype');
-  font-weight: normal;
-  font-style: normal;
-}
 body, html {
   margin: 0;
   padding: 0;

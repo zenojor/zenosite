@@ -1,9 +1,8 @@
-import * as THREE from 'three'
+﻿import * as THREE from 'three'
 import type { Reflector } from 'three/examples/jsm/objects/Reflector.js'
 import gsap from 'gsap'
-import { ASCII_CONFIG } from '../state/siteConfig'
+import { ASCII_CONFIG } from '@/config/ascii'
 
-// ASCII Config (from siteConfig)
 const MONO_RAMP = ' .`-_:,;^=+/|)\\!?0oOQ#%@'
 const CHAR_WIDTH = ASCII_CONFIG.charWidth
 const CHAR_HEIGHT = ASCII_CONFIG.charHeight
@@ -38,7 +37,7 @@ export interface SubPageAsciiOptions {
   domPaddingY?: number
 }
 
-export class EffectManager {
+export class AsciiRenderer {
   // Silhouette Mask
   private maskWidth = 256
   private maskHeight = 256
@@ -64,15 +63,14 @@ export class EffectManager {
   private domObstacles: Rect[] = []
 
   /**
-   * ASCII 可见度进度：0 = 完全不可见（空格），1 = 完全可见（正常渲染）�?
-   * �?0~1 之间时会对每个字符应用随机字符替换效果�?
+   * ASCII visibility progress: 0 = hidden, 1 = fully rendered.
+   * During transitions, characters are revealed or hidden by fixed random thresholds.
    */
   private asciiVisibility = 1.0
   private asciiVisibilityTween: gsap.core.Tween | null = null
   /**
-   * ASCII 字符的固定随机阈值缓存�?
-   * Key = "row,col", Value = 阈值�?
-   * 仅在动画开始时重新生成�?
+   * Fixed random thresholds for ASCII characters.
+   * Regenerated only when an animation starts.
    */
   private asciiCharThresholds: Map<number, number> = new Map()
 
@@ -82,7 +80,7 @@ export class EffectManager {
     this.maskMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff })
     this.maskBuffer = new Uint8Array(this.maskWidth * this.maskHeight * 4)
 
-    // Configure ASCII render target (初始默认为左半屏)
+    // Configure ASCII render target (鍒濆榛樿涓哄乏鍗婂睆)
     this.asciiCols = Math.floor((window.innerWidth / 2) / CHAR_WIDTH)
     this.asciiRows = Math.floor(window.innerHeight / CHAR_HEIGHT)
     this.asciiRenderTarget = new THREE.WebGLRenderTarget(this.asciiCols, this.asciiRows)
@@ -98,7 +96,7 @@ export class EffectManager {
     this.aboutAsciiContentBuffer = new Uint8Array(this.aboutAsciiCols * this.aboutAsciiRows * 4)
   }
 
-  /** 设置额外�?DOM 障碍物（�?About 文案区域�?*/
+  /** Set additional DOM obstacle rectangles for ASCII avoidance. */
   setDomObstacles(rects: Rect[]) {
     this.domObstacles = rects
   }
@@ -182,16 +180,15 @@ export class EffectManager {
     scene.overrideMaterial = this.asciiMaterial
     groundMirror.visible = false
 
-    // --- 相机 投影矩阵平移 (View Offset) 核心逻辑 ---
+    // --- 鐩告満 鎶曞奖鐭╅樀骞崇Щ (View Offset) 鏍稿績閫昏緫 ---
 
-    // 1. 获取模型中心在当前屏幕上的投影点 (像素)
-    // 强制更新相机矩阵以保证投影精�?
+    // 1. 鑾峰彇妯″瀷涓績鍦ㄥ綋鍓嶅睆骞曚笂鐨勬姇褰辩偣 (鍍忕礌)
+    // Update camera matrices before projecting to screen space.
     camera.updateMatrixWorld()
     camera.updateProjectionMatrix()
 
     const projectionTarget = new THREE.Vector3(0, 0, 0)
-    // 只有�?About 模式下才需要动态追踪模型中心（因为 About 页面人物偏离中心很远�?
-    // Home 模式下我们投影世界原�?(0,0,0)，这样人物绕原点旋转的动态能被保�?
+    // Subpages can track the model center; home keeps the world origin stable.
     if ((options.mode === 'about' || options.mode === 'subpage') && model) {
       model.updateMatrixWorld()
       const box = new THREE.Box3().setFromObject(model)
@@ -202,31 +199,31 @@ export class EffectManager {
     const pxX = (modelProjected.x * 0.5 + 0.5) * window.innerWidth
     const pxY = (1 - (modelProjected.y * 0.5 + 0.5)) * window.innerHeight
 
-    // 2. 计算视图偏移 (View Offset)
+    // 2. 璁＄畻瑙嗗浘鍋忕Щ (View Offset)
     const zoom = ASCII_CONFIG.home.zoom
-    // 注意：这里的 subWidth / subHeight 必须符合渲染目标的比�?(0.5)，否则会拉伸
+    // The sub-viewport dimensions must match the render target ratio to avoid stretching.
     const subWidth = (window.innerWidth / 2) / zoom
     const subHeight = window.innerHeight / zoom
-    // 我们希望模型投影�?(pxX, pxY) 处于子视口的中心
+    // Center the projected model point in the sub-viewport.
     const offsetX = pxX - subWidth / 2
     const offsetY = pxY - subHeight / 2
 
-    // 应用偏移：这相当于在不改变相机指向的情况下，平移“感光底片�?
+    // Apply a view offset without changing the camera direction.
     camera.setViewOffset(window.innerWidth, window.innerHeight, offsetX, offsetY, subWidth, subHeight)
-    // 重置额外 zoom
+    // 閲嶇疆棰濆 zoom
     camera.zoom = 1
     camera.updateProjectionMatrix()
 
     renderer.setRenderTarget(this.asciiRenderTarget)
 
-    // 3. 渲染一次带 asciiMaterial 的场景，用于真实的字符生成（包含光影�?
+    // 3. Render once with asciiMaterial to generate character brightness.
     renderer.render(scene, camera)
     renderer.readRenderTargetPixels(this.asciiRenderTarget, 0, 0, this.asciiCols, this.asciiRows, this.asciiContentBuffer)
 
     const asciiLinesData = []
     const obstacles = options.domObstacles || this.domObstacles
 
-    // 关于�?ASCII 在屏幕正中央显示的偏移量
+    // Offset used when ASCII is centered on screen.
     const canvasWidth = this.asciiCols * CHAR_WIDTH
     const screenOffsetX = options.mode === 'home' ? 0 : Math.floor((window.innerWidth - canvasWidth) / 2)
 
@@ -236,7 +233,7 @@ export class EffectManager {
       const lineTop = (this.asciiRows - 1 - r) * CHAR_HEIGHT
       const limits = this.getObstacleLimits(lineTop, CHAR_HEIGHT)
 
-      // 3D 轮廓边界检�?(�?Home 模式使用简单的左侧截断逻辑)
+      // 3D silhouette boundary check. Home uses a simple left-side cutoff.
       let limitCol = this.asciiCols
       if (options.mode === 'home') {
         if (limits.modelLeft < window.innerWidth) {
@@ -249,13 +246,13 @@ export class EffectManager {
       for (let c = 0; c < this.asciiCols; c++) {
         const absoluteScreenPointX = screenOffsetX + c * CHAR_WIDTH
 
-        // 1. 规避 3D 轮廓 (Home 模式左侧逻辑)
+        // 1. 瑙勯伩 3D 杞粨 (Home 妯″紡宸︿晶閫昏緫)
         if (options.mode === 'home' && c > limitCol) {
           break
         }
 
-        // 2. 规避 3D 轮廓 (About 模式双向规避 - 基于全屏 maskBuffer 渲染出的亮度)
-        // 检测当前字符点是否命中了“实际显示的人物位置”。使用字符中心采样�?
+        // 2. 瑙勯伩 3D 杞粨 (About 妯″紡鍙屽悜瑙勯伩 - 鍩轰簬鍏ㄥ睆 maskBuffer 娓叉煋鍑虹殑浜害)
+        // Sample the character center to avoid the visible model silhouette.
         const u = (absoluteScreenPointX + CHAR_WIDTH / 2) / window.innerWidth
         const v = 1 - ((lineTop + CHAR_HEIGHT / 2) / window.innerHeight)
         const mx = Math.floor(u * this.maskWidth)
@@ -269,7 +266,7 @@ export class EffectManager {
           }
         }
 
-        // 3. 规避 DOM 障碍�?(About 文案�?
+        // 3. Avoid DOM obstacles.
         let hitDom = false
         const horizontalPadding = ASCII_CONFIG.home.domPaddingX
         const verticalPadding = ASCII_CONFIG.home.domPaddingY
@@ -292,14 +289,14 @@ export class EffectManager {
           continue
         }
 
-        // 4. 转换真实的场景亮度为字符
+        // 4. 杞崲鐪熷疄鐨勫満鏅寒搴︿负瀛楃
         const pixelIdx = (r * this.asciiCols + c) * 4
         const brightness = (this.asciiContentBuffer[pixelIdx]! + this.asciiContentBuffer[pixelIdx + 1]! + this.asciiContentBuffer[pixelIdx + 2]!) / 3
         const proportion = brightness / 255.0
         const rampIdx = Math.min(MONO_RAMP.length - 1, Math.floor(proportion * MONO_RAMP.length))
         let ch = MONO_RAMP[rampIdx]!
 
-        // 可见度效�?
+        // Visibility effect.
         if (this.asciiVisibility < 1.0) {
           const key = r * 10000 + c
           let threshold = this.asciiCharThresholds.get(key)
@@ -349,14 +346,14 @@ export class EffectManager {
     scene.overrideMaterial = prevOverride
     groundMirror.visible = groundVis
 
-    // 彻底清除 View Offset，恢复相机原始投影矩�?
+    // Clear the view offset and restore the original projection matrix.
     camera.clearViewOffset()
     camera.zoom = prevZoom
     camera.aspect = prevAspect
     camera.updateProjectionMatrix()
   }
 
-  /** About Pass: FULL SCREEN version specifically for子页面，与主页逻辑彻底隔离 */
+  /** About Pass: FULL SCREEN version specifically for瀛愰〉闈紝涓庝富椤甸€昏緫褰诲簳闅旂 */
   renderAboutAsciiPass(
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
@@ -379,7 +376,7 @@ export class EffectManager {
     camera.updateMatrixWorld()
     camera.updateProjectionMatrix()
 
-    // 1. 获取追踪目标中心
+    // 1. 鑾峰彇杩借釜鐩爣涓績
     const projectionTarget = new THREE.Vector3(0, 0, 0)
     if ((options.trackModelCenter ?? true) && model) {
       model.updateMatrixWorld()
@@ -391,7 +388,7 @@ export class EffectManager {
     const pxX = (modelProjected.x * 0.5 + 0.5) * window.innerWidth
     const pxY = (1 - (modelProjected.y * 0.5 + 0.5)) * window.innerHeight
 
-    // 2. 计算视图偏移 (2.0x 全屏裁剪，不产生截断)
+    // 2. 璁＄畻瑙嗗浘鍋忕Щ (2.0x 鍏ㄥ睆瑁佸壀锛屼笉浜х敓鎴柇)
     const zoom = options.zoom ?? 2.0
     const fullWidth = window.innerWidth * zoom
     const fullHeight = window.innerHeight * zoom
@@ -425,10 +422,10 @@ export class EffectManager {
       for (let c = 0; c < this.aboutAsciiCols; c++) {
         const absoluteScreenX = c * CHAR_WIDTH
 
-        // --- 核心规避逻辑 ---
+        // --- 鏍稿績瑙勯伩閫昏緫 ---
 
-        // 1. 规避 3D 轮廓 (基于全屏 maskBuffer，并增加邻域检测实�?Padding)
-        // 使用字符中心采样，提高避障精准度
+        // 1. Avoid the 3D silhouette using the full-screen mask buffer and neighbor sampling.
+        // 浣跨敤瀛楃涓績閲囨牱锛屾彁楂橀伩闅滅簿鍑嗗害
         const u = (absoluteScreenX + CHAR_WIDTH / 2) / window.innerWidth
         const v = 1 - ((lineTop + CHAR_HEIGHT / 2) / window.innerHeight)
         const mx = Math.floor(u * this.maskWidth)
@@ -456,7 +453,7 @@ export class EffectManager {
           continue
         }
 
-        // 2. 规避 DOM 文案
+        // 2. 瑙勯伩 DOM 鏂囨
         let hitDom = false
         const paddingX = options.domPaddingX ?? 12
         const paddingY = options.domPaddingY ?? 2
@@ -478,7 +475,7 @@ export class EffectManager {
           continue
         }
 
-        // 3. 生成字符逻辑
+        // 3. 鐢熸垚瀛楃閫昏緫
         const pixelIdx = (r * this.aboutAsciiCols + c) * 4
         const brightness = (this.aboutAsciiContentBuffer[pixelIdx]! + this.aboutAsciiContentBuffer[pixelIdx + 1]! + this.aboutAsciiContentBuffer[pixelIdx + 2]!) / 3
         const proportion = brightness / 255.0
@@ -486,7 +483,7 @@ export class EffectManager {
         let ch = MONO_RAMP[rampIdx]!
 
         if (this.asciiVisibility < 1.0) {
-          const key = r * 20000 + c // 增大 Key 防止碰撞
+          const key = r * 20000 + c // 澧炲ぇ Key 闃叉纰版挒
           let threshold = this.asciiCharThresholds.get(key)
           if (threshold === undefined) {
             threshold = Math.random() * 0.6 + 0.15
@@ -499,7 +496,7 @@ export class EffectManager {
       asciiLinesData.push({ x: 0, y: lineTop, text: rowChars })
     }
 
-    // 更新 DOM
+    // 鏇存柊 DOM
     while (this.asciiLinesPool.length < asciiLinesData.length) {
       const el = document.createElement('div')
       el.className = 'ascii-line'
@@ -538,7 +535,7 @@ export class EffectManager {
     camera.updateProjectionMatrix()
   }
 
-  /** 清除 ASCII DOM 池（用于转场后重新生成全新元素） */
+  /** 娓呴櫎 ASCII DOM 姹狅紙鐢ㄤ簬杞満鍚庨噸鏂扮敓鎴愬叏鏂板厓绱狅級 */
   renderSubPageAsciiPass(
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
@@ -558,12 +555,12 @@ export class EffectManager {
   }
 
   /**
-   * ASCII 消散动画：可见度�?1 �?0
-   * 在动画期间，renderAsciiPass 每帧仍在运行，会自动应用效果
+   * ASCII dissolve animation: visibility goes from 1 to 0.
+   * 鍦ㄥ姩鐢绘湡闂达紝renderAsciiPass 姣忓抚浠嶅湪杩愯锛屼細鑷姩搴旂敤鏁堟灉
    */
   animateAsciiDissolve(duration = 1.0): Promise<void> {
     this.killAsciiTween()
-    // 动画开始时重新生成阈�?
+    // Regenerate thresholds at animation start.
     this.asciiCharThresholds.clear()
     return new Promise((resolve) => {
       this.asciiVisibilityTween = gsap.to(this, {
@@ -579,13 +576,13 @@ export class EffectManager {
   }
 
   /**
-   * ASCII 重现动画：可见度�?0 �?1
-   * 在动画期间，renderAsciiPass 每帧仍在运行，会自动应用效果
+   * ASCII materialize animation: visibility goes from 0 to 1.
+   * 鍦ㄥ姩鐢绘湡闂达紝renderAsciiPass 姣忓抚浠嶅湪杩愯锛屼細鑷姩搴旂敤鏁堟灉
    */
   animateAsciiMaterialize(duration = 1.0): Promise<void> {
     this.killAsciiTween()
     this.asciiVisibility = 0
-    // 动画开始时重新生成阈�?
+    // Regenerate thresholds at animation start.
     this.asciiCharThresholds.clear()
     return new Promise((resolve) => {
       this.asciiVisibilityTween = gsap.to(this, {
@@ -600,7 +597,7 @@ export class EffectManager {
     })
   }
 
-  /** 立即设置 ASCII 可见度（无动画） */
+  /** 绔嬪嵆璁剧疆 ASCII 鍙搴︼紙鏃犲姩鐢伙級 */
   setAsciiVisibility(v: number) {
     this.killAsciiTween()
     this.asciiVisibility = v
@@ -613,7 +610,7 @@ export class EffectManager {
     }
   }
 
-  /** 窗口缩放时更�?ASCII 渲染目标尺寸 */
+  /** Resize ASCII render targets after viewport changes. */
   onResize() {
     this.asciiCols = Math.floor((window.innerWidth / 2) / CHAR_WIDTH)
     this.asciiRows = Math.floor(window.innerHeight / CHAR_HEIGHT)
@@ -636,3 +633,4 @@ export class EffectManager {
     this.asciiMaterial.dispose()
   }
 }
+

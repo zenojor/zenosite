@@ -1,4 +1,4 @@
-import type { PageName } from './siteState'
+import type { PageName } from '@/router/pages'
 
 export interface SocialBadge {
   img: string
@@ -97,12 +97,12 @@ export const SITE_CONTENT: Record<Exclude<PageName, 'home'>, SubPageContent> = {
       '|    ___||    __  ||  |_|  | ___|   ||    ___||      _|  |   |  |_____  |',
       '|   |    |   |  | ||       ||       ||   |___ |     |_   |   |   _____| |',
       '|___|    |___|  |_||_______||_______||_______||_______|  |___|  |_______|',
-      '|',
+      ' ',
       '> A curated collection of my work.',
-      '|',
-      '|',
+      ' ',
+      ' ',
       '  01  Personal Website (This Site)',
-      '|',
+      ' ',
       '      A fully interactive 3D personal portfolio',
       '      built with Three.js, Vue 3, and custom',
       '      ASCII rendering pipelines. Features include',
@@ -111,8 +111,8 @@ export const SITE_CONTENT: Record<Exclude<PageName, 'home'>, SubPageContent> = {
       '      smooth page transitions with dissolve/materialize',
       '      effects, and responsive design across all',
       '      screen sizes.',
-      '|',
-      '      Tech: Three.js · Vue 3 · TypeScript · GLSL',
+      ' ',
+      '      Tech: Three.js · Vue 3 · Vue Router · TypeScript · GSAP',
       '      Status: ████████████████████ 100%',
       // '|',
       // '|',

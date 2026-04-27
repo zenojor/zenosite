@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js'
+import modelUrl from '@/assets/models/cloud-from-world-of-final-fantasy.glb?url'
 
 // --- 参数配置区 ---
 const MIRROR_OPACITY = 0.4
@@ -90,7 +91,7 @@ export class World {
   private loadModel() {
     const loader = new GLTFLoader()
 
-    loader.load('/cloud_from_world_of_final_fantasy.glb', (gltf) => {
+    loader.load(modelUrl, (gltf) => {
       this.model = gltf.scene
 
       // Compute bounding box to set proper scale and position
@@ -149,6 +150,6 @@ export class World {
   }
 
   dispose() {
-    // 主要由 Experience 统一 dispose renderer
+    // Renderer disposal is handled by SceneRuntime.
   }
 }

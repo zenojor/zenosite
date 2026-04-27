@@ -1,15 +1,17 @@
-import * as THREE from 'three'
+﻿import * as THREE from 'three'
 import { watch } from 'vue'
 import gsap from 'gsap'
 import { CameraManager } from './CameraManager'
 import { World } from './World'
-import { EffectManager } from './EffectManager'
-import { LayoutManager } from './LayoutManager'
+import { AsciiRenderer } from './AsciiRenderer'
+import { SceneLayout } from './SceneLayout'
 import { TextAnimator } from './TextAnimator'
-import { activePage, setPage, isAppTransitioning, type PageName } from '../state/siteState'
-import { ASCII_CONFIG, isMobileViewport, responsive } from '../state/siteConfig'
+import { ASCII_CONFIG } from '@/config/ascii'
+import { isMobileViewport, responsive } from '@/config/breakpoints'
+import type { PageName } from '@/router/pages'
+import { activePage, setPage, isAppTransitioning } from '@/state/navigationState'
 
-export interface ExperienceDOMRefs {
+export interface SceneRuntimeRefs {
   canvas: HTMLCanvasElement
   asciiContainer: HTMLDivElement
   dynamicLayoutContainer: HTMLDivElement
@@ -17,18 +19,18 @@ export interface ExperienceDOMRefs {
   backButton: HTMLDivElement | null
 }
 
-export class Experience {
+export class SceneRuntime {
   private renderer: THREE.WebGLRenderer
   private scene: THREE.Scene
   private clock: THREE.Clock
 
   private cameraManager: CameraManager
   private world: World
-  private effectManager: EffectManager
-  private layoutManager: LayoutManager
+  private asciiRenderer: AsciiRenderer
+  private sceneLayout: SceneLayout
 
   private animationId: number | null = null
-  private domRefs: ExperienceDOMRefs
+  private domRefs: SceneRuntimeRefs
 
   private currentPage: PageName = 'home'
   private runHomeDuringTransition = false
@@ -40,7 +42,7 @@ export class Experience {
     return isMobileViewport()
   }
 
-  constructor(refs: ExperienceDOMRefs) {
+  constructor(refs: SceneRuntimeRefs) {
     this.domRefs = refs
 
     this.scene = new THREE.Scene()
@@ -53,8 +55,8 @@ export class Experience {
 
     this.cameraManager = new CameraManager(refs.canvas)
     this.world = new World(this.scene)
-    this.effectManager = new EffectManager()
-    this.layoutManager = new LayoutManager()
+    this.asciiRenderer = new AsciiRenderer()
+    this.sceneLayout = new SceneLayout()
 
     if (this.isMobileMode && activePage.value !== 'home') {
       setPage('home', true)
@@ -75,9 +77,10 @@ export class Experience {
     // Initialize UI visibility from current page state.
     if (activePage.value !== 'home') {
       this.currentPage = activePage.value
-      // 濡傛灉鍒濆灏卞湪瀛愰〉锛岄殣钘忎富椤靛鑸紝鏄剧ず Back
+      // If the route starts on a subpage, hide home nav and show Back.
       if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'none'
       if (this.domRefs.backButton) this.domRefs.backButton.style.display = 'block'
+      void this.cameraManager.transitionTo(activePage.value, 0)
     } else {
       if (this.domRefs.backButton) this.domRefs.backButton.style.display = 'none'
       if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'flex'
@@ -94,8 +97,8 @@ export class Experience {
       if (this.cameraManager.getMode() !== 'orbit') {
         void this.cameraManager.transitionTo('home', 0.6)
       }
-      this.layoutManager.clearAll()
-      this.effectManager.clearAsciiPool()
+      this.sceneLayout.clearAll()
+      this.asciiRenderer.clearAsciiPool()
       this.domRefs.dynamicLayoutContainer.style.display = 'none'
       if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'none'
       if (this.domRefs.backButton) this.domRefs.backButton.style.display = 'none'
@@ -131,30 +134,31 @@ export class Experience {
     if (from === 'home') {
       this.runHomeDuringTransition = true
       await Promise.all([
-        this.layoutManager.animateHomeDissolve(1.0),
-        this.effectManager.animateAsciiDissolve(1.0),
+        this.sceneLayout.animateHomeDissolve(1.0),
+        this.asciiRenderer.animateAsciiDissolve(1.0),
         TextAnimator.dissolve(navSpans, 0.8),
       ])
+      if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'none'
       this.runHomeDuringTransition = false
-      this.effectManager.clearAsciiPool()
+      this.asciiRenderer.clearAsciiPool()
 
       await this.cameraManager.transitionTo(to, 1.2)
       this.currentPage = to
 
       if (to !== 'home') {
         this.runSubPageDuringTransition = true
-        this.layoutManager.updateSubPage(to, this.domRefs.dynamicLayoutContainer, this.effectManager)
+        this.sceneLayout.updateSubPage(to, this.domRefs.dynamicLayoutContainer, this.asciiRenderer)
 
-        const elements = this.layoutManager.getSubPageElements()
-        const texts = this.layoutManager.getSubPageTexts()
-        const badgeContainer = this.layoutManager.getBadgeContainer()
-        const socialBadgeContainer = this.layoutManager.getSocialBadgeContainer()
+        const elements = this.sceneLayout.getSubPageElements()
+        const texts = this.sceneLayout.getSubPageTexts()
+        const badgeContainer = this.sceneLayout.getBadgeContainer()
+        const socialBadgeContainer = this.sceneLayout.getSocialBadgeContainer()
         if (badgeContainer) badgeContainer.style.opacity = '0'
         if (socialBadgeContainer) socialBadgeContainer.style.opacity = '0'
 
         await Promise.all([
           TextAnimator.materialize(elements, texts, 1.0),
-          this.effectManager.animateAsciiMaterialize(1.0),
+          this.asciiRenderer.animateAsciiMaterialize(1.0),
           backBtn ? TextAnimator.materialize([backBtn], ['[ Back ]'], 0.8) : Promise.resolve(),
         ])
         if (badgeContainer) gsap.to(badgeContainer, { opacity: 1, duration: 0.8, ease: 'power3.out' })
@@ -162,66 +166,67 @@ export class Experience {
         this.runSubPageDuringTransition = false
       }
     } else if (to === 'home') {
-      // 1. 娑堟暎瀛愰〉 (鎵€鏈夐潪 Home 椤甸潰)
+      // 1. Dissolve the current subpage.
       this.runSubPageDuringTransition = true
-      const elements = this.layoutManager.getSubPageElements()
-      const badgeContainer = this.layoutManager.getBadgeContainer()
-      const socialBadgeContainer = this.layoutManager.getSocialBadgeContainer()
+      const elements = this.sceneLayout.getSubPageElements()
+      const badgeContainer = this.sceneLayout.getBadgeContainer()
+      const socialBadgeContainer = this.sceneLayout.getSocialBadgeContainer()
       await Promise.all([
         TextAnimator.dissolve(elements, 1.0),
-        this.effectManager.animateAsciiDissolve(1.0),
+        this.asciiRenderer.animateAsciiDissolve(1.0),
         backBtn ? TextAnimator.dissolve([backBtn], 0.8) : Promise.resolve(),
         badgeContainer ? gsap.to(badgeContainer, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
         socialBadgeContainer ? gsap.to(socialBadgeContainer, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
       ])
       this.runSubPageDuringTransition = false
-      this.layoutManager.clearSubPage()
-      this.effectManager.clearAsciiPool()
+      this.sceneLayout.clearSubPage()
+      this.asciiRenderer.clearAsciiPool()
 
-      // 2. 鍥炲埌涓婚〉鐩告満
+      // 2. Move the camera back to home.
       await this.cameraManager.transitionTo('home', 1.2)
       this.currentPage = 'home'
 
-      // 3. 閲嶇幇涓婚〉 (鏂囧瓧 + ASCII + 瀵艰埅鎸夐挳)
+      // 3. Materialize home text, ASCII, and navigation.
+      if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'flex'
       this.runHomeDuringTransition = true
       await Promise.all([
-        this.layoutManager.animateHomeMaterialize(1.0),
-        this.effectManager.animateAsciiMaterialize(1.0),
+        this.sceneLayout.animateHomeMaterialize(1.0),
+        this.asciiRenderer.animateAsciiMaterialize(1.0),
         TextAnimator.materialize(navSpans, navTexts, 0.8),
       ])
       this.runHomeDuringTransition = false
     } else {
-      // 椤甸潰闂村垏鎹紙瀛愰〉闈箣闂达級
+      // Transition between subpages.
       this.runSubPageDuringTransition = true
-      const elementsOld = this.layoutManager.getSubPageElements()
-      const badgeContainerOld = this.layoutManager.getBadgeContainer()
-      const socialBadgeContainerOld = this.layoutManager.getSocialBadgeContainer()
+      const elementsOld = this.sceneLayout.getSubPageElements()
+      const badgeContainerOld = this.sceneLayout.getBadgeContainer()
+      const socialBadgeContainerOld = this.sceneLayout.getSocialBadgeContainer()
       await Promise.all([
         TextAnimator.dissolve(elementsOld, 1.0),
-        this.effectManager.animateAsciiDissolve(1.0),
+        this.asciiRenderer.animateAsciiDissolve(1.0),
         badgeContainerOld ? gsap.to(badgeContainerOld, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
         socialBadgeContainerOld ? gsap.to(socialBadgeContainerOld, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
       ])
       this.runSubPageDuringTransition = false
-      this.layoutManager.clearSubPage()
-      this.effectManager.clearAsciiPool()
+      this.sceneLayout.clearSubPage()
+      this.asciiRenderer.clearAsciiPool()
 
       await this.cameraManager.transitionTo(to, 1.2)
       this.currentPage = to
 
       this.runSubPageDuringTransition = true
-      this.layoutManager.updateSubPage(to, this.domRefs.dynamicLayoutContainer, this.effectManager)
+      this.sceneLayout.updateSubPage(to, this.domRefs.dynamicLayoutContainer, this.asciiRenderer)
 
-      const elementsNew = this.layoutManager.getSubPageElements()
-      const textsNew = this.layoutManager.getSubPageTexts()
-      const badgeContainerNew = this.layoutManager.getBadgeContainer()
-      const socialBadgeContainerNew = this.layoutManager.getSocialBadgeContainer()
+      const elementsNew = this.sceneLayout.getSubPageElements()
+      const textsNew = this.sceneLayout.getSubPageTexts()
+      const badgeContainerNew = this.sceneLayout.getBadgeContainer()
+      const socialBadgeContainerNew = this.sceneLayout.getSocialBadgeContainer()
       if (badgeContainerNew) badgeContainerNew.style.opacity = '0'
       if (socialBadgeContainerNew) socialBadgeContainerNew.style.opacity = '0'
 
       await Promise.all([
         TextAnimator.materialize(elementsNew, textsNew, 1.0),
-        this.effectManager.animateAsciiMaterialize(1.0),
+        this.asciiRenderer.animateAsciiMaterialize(1.0),
       ])
       if (badgeContainerNew) gsap.to(badgeContainerNew, { opacity: 1, duration: 0.8, ease: 'power3.out' })
       if (socialBadgeContainerNew) gsap.to(socialBadgeContainerNew, { opacity: 1, duration: 0.8, ease: 'power3.out' })
@@ -239,11 +244,11 @@ export class Experience {
     this.cameraManager.update()
     const camera = this.cameraManager.camera
 
-    // 1. 鍏ㄥ睆鍓奖锛堢敤浜庤閬垮疄闄呬汉鐗╀綅缃級
-    this.effectManager.renderSilhouettePass(this.renderer, this.scene, camera, this.world.groundMirror)
+    // 1. Full-screen silhouette pass for model avoidance.
+    this.asciiRenderer.renderSilhouettePass(this.renderer, this.scene, camera, this.world.groundMirror)
 
     if (this.isMobileMode) {
-      this.effectManager.renderSubPageAsciiPass(
+      this.asciiRenderer.renderSubPageAsciiPass(
         this.renderer,
         this.scene,
         camera,
@@ -270,17 +275,17 @@ export class Experience {
     const isHome = (this.currentPage === 'home' && !isAppTransitioning.value) || (isAppTransitioning.value && this.runHomeDuringTransition)
     const isSubPage = (this.currentPage !== 'home' && !isAppTransitioning.value) || (isAppTransitioning.value && this.runSubPageDuringTransition)
 
-    // 2. 涓婚〉甯冨眬
+    // 2. Home layout.
     if (isHome) {
       if (this.domRefs.dynamicLayoutContainer) {
-        this.layoutManager.update(this.domRefs.dynamicLayoutContainer, this.domRefs.navContainer, this.effectManager)
+        this.sceneLayout.update(this.domRefs.dynamicLayoutContainer, this.domRefs.navContainer, this.asciiRenderer)
       }
     }
 
     // ASCII rendering: home uses half-screen, subpages use full-screen pass.
     if (isHome) {
       if (this.domRefs.asciiContainer) {
-        this.effectManager.renderAsciiPass(
+        this.asciiRenderer.renderAsciiPass(
           this.renderer,
           this.scene,
           camera,
@@ -294,14 +299,14 @@ export class Experience {
       if (this.domRefs.asciiContainer) {
         const pageName = this.currentPage as Exclude<PageName, 'home'>
         const asciiConf = ASCII_CONFIG.subPage[pageName]
-        this.effectManager.renderSubPageAsciiPass(
+        this.asciiRenderer.renderSubPageAsciiPass(
           this.renderer,
           this.scene,
           camera,
           this.world.groundMirror,
           this.domRefs.asciiContainer,
           {
-            domObstacles: this.layoutManager.getSubPageRects(),
+            domObstacles: this.sceneLayout.getSubPageRects(),
             overlayOffsetX: responsive(asciiConf.overlayOffsetX),
             overlayOffsetY: responsive(asciiConf.overlayOffsetY),
             zoom: asciiConf.zoom,
@@ -315,10 +320,10 @@ export class Experience {
       }
     }
 
-    // 4. SubPage 甯冨眬閬块殰
+    // 4. Update subpage layout obstacles.
     if (this.currentPage !== 'home' && !isAppTransitioning.value) {
       const p = this.currentPage as Exclude<PageName, 'home'>
-      this.layoutManager.updateSubPage(p, this.domRefs.dynamicLayoutContainer, this.effectManager)
+      this.sceneLayout.updateSubPage(p, this.domRefs.dynamicLayoutContainer, this.asciiRenderer)
     }
 
     this.renderer.render(this.scene, camera)
@@ -328,7 +333,7 @@ export class Experience {
     this.cameraManager.onResize()
     this.renderer.setSize(window.innerWidth, window.innerHeight)
     this.world.onResize()
-    this.effectManager.onResize()
+    this.asciiRenderer.onResize()
     if (this.isMobileMode && activePage.value !== 'home') {
       setPage('home', true)
     }
@@ -340,7 +345,8 @@ export class Experience {
     if (this.stopWatcher) this.stopWatcher()
     window.removeEventListener('resize', this.onResize)
     this.cameraManager.dispose()
-    this.effectManager.dispose()
+    this.asciiRenderer.dispose()
     this.renderer.dispose()
   }
 }
+

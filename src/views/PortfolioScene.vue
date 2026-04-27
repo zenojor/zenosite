@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
-import { Experience } from '../three/Experience'
-import { activePage, setPage, type PageName } from '../state/siteState'
-import { BREAKPOINTS } from '../state/siteConfig'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { SceneRuntime } from '@/scene/SceneRuntime'
+import { BREAKPOINTS } from '@/config/breakpoints'
+import { getPageFromRoute, PAGE_PATHS, type PageName } from '@/router/pages'
+import { activePage, setPage } from '@/state/navigationState'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const asciiRef = ref<HTMLDivElement | null>(null)
@@ -11,21 +13,24 @@ const navRef = ref<HTMLDivElement | null>(null)
 const backRef = ref<HTMLDivElement | null>(null)
 const viewportWidth = ref(window.innerWidth)
 const wechatCopied = ref(false)
+const route = useRoute()
+const router = useRouter()
 
-let experience: Experience | null = null
+let sceneRuntime: SceneRuntime | null = null
 
 const isMobile = computed(() => viewportWidth.value < BREAKPOINTS.mobile)
+const routePage = computed(() => getPageFromRoute(route))
 
 const updateViewport = () => {
   viewportWidth.value = window.innerWidth
+  if (isMobile.value && routePage.value !== 'home') {
+    void router.replace(PAGE_PATHS.home)
+  }
 }
 
 const handleNav = (page: PageName) => {
-  if (activePage.value === page && page !== 'home') {
-    setPage('home')
-  } else {
-    setPage(page)
-  }
+  const targetPage = activePage.value === page && page !== 'home' ? 'home' : page
+  void router.push(PAGE_PATHS[targetPage])
 }
 
 const handleWechatBadge = async () => {
@@ -44,7 +49,7 @@ onMounted(() => {
   if (!canvasRef.value || !asciiRef.value || !dynamicLayoutRef.value) return
 
   window.addEventListener('resize', updateViewport)
-  experience = new Experience({
+  sceneRuntime = new SceneRuntime({
     canvas: canvasRef.value,
     asciiContainer: asciiRef.value,
     dynamicLayoutContainer: dynamicLayoutRef.value,
@@ -53,10 +58,23 @@ onMounted(() => {
   })
 })
 
+watch(
+  routePage,
+  (page) => {
+    if (isMobile.value && page !== 'home') {
+      void router.replace(PAGE_PATHS.home)
+      return
+    }
+
+    setPage(page)
+  },
+  { immediate: true },
+)
+
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateViewport)
-  experience?.dispose()
-  experience = null
+  sceneRuntime?.dispose()
+  sceneRuntime = null
 })
 </script>
 
@@ -171,7 +189,7 @@ canvas {
   white-space: nowrap;
 }
 
-/* 全局 UI 统一风格（参考主标题颜色 #595959，避免纯黑 #111 过重） */
+/* 全局 UI 统一风格（参考主标题颜色 #595959，避免纯�?#111 过重�?*/
 .back-btn, .nav-container {
   font-family: 'Courier New', Courier, monospace;
   font-size: 16px;

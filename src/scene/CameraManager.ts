@@ -1,7 +1,7 @@
-import * as THREE from 'three'
+﻿import * as THREE from 'three'
 import gsap from 'gsap'
-import type { PageName } from '../state/siteState'
-import { CAMERA_CONFIG } from '../state/siteConfig'
+import { CAMERA_CONFIG } from '@/config/camera'
+import type { PageName } from '@/router/pages'
 
 type CameraMode = 'orbit' | 'transitioning' | 'fixed'
 
@@ -10,28 +10,28 @@ interface CameraViewDef {
   lookAt: THREE.Vector3
 }
 
-/** 相机视角定义从 siteConfig.ts 的 CAMERA_CONFIG.views 读取 */
+/** Camera view definitions are read from CAMERA_CONFIG.views. */
 
 export class CameraManager {
   camera: THREE.PerspectiveCamera
 
-  // 当前模式
+  // 褰撳墠妯″紡
   private mode: CameraMode = 'orbit'
 
-  // Orbit 模式参数
+  // Orbit 妯″紡鍙傛暟
   private angle = 0
   private get cameraDistance() { return CAMERA_CONFIG.orbit.distance }
   private get cameraHeight() { return CAMERA_CONFIG.orbit.height }
 
-  // 鼠标/触控拖拽控制
+  // 榧犳爣/瑙︽帶鎷栨嫿鎺у埗
   private isDragging = false
   private previousX = 0
   private velocity = 0
 
-  // Fixed 模式：当前 lookAt 目标（用于平滑过渡）
+  // Fixed 妯″紡锛氬綋鍓?lookAt 鐩爣锛堢敤浜庡钩婊戣繃娓★級
   private currentLookAt = new THREE.Vector3(0, 0, 0)
 
-  // 活跃的 GSAP tween（用于取消）
+  // 娲昏穬鐨?GSAP tween锛堢敤浜庡彇娑堬級
   private activeTweens: gsap.core.Tween[] = []
 
   // Bound event handlers
@@ -58,7 +58,7 @@ export class CameraManager {
   }
 
   private onPointerDown(e: PointerEvent) {
-    // 只有 orbit 模式下才允许拖拽
+    // 鍙湁 orbit 妯″紡涓嬫墠鍏佽鎷栨嫿
     if (this.mode !== 'orbit') return
     this.isDragging = true
     this.previousX = e.clientX
@@ -79,11 +79,10 @@ export class CameraManager {
   }
 
   /**
-   * 平滑过渡到指定页面的相机视角。
-   * @returns Promise，在转场完成后 resolve
+   * 骞虫粦杩囨浮鍒版寚瀹氶〉闈㈢殑鐩告満瑙嗚銆?   * @returns Promise锛屽湪杞満瀹屾垚鍚?resolve
    */
   transitionTo(page: PageName, duration = 0.8): Promise<void> {
-    // 取消所有进行中的 tween
+    // 鍙栨秷鎵€鏈夎繘琛屼腑鐨?tween
     this.killActiveTweens()
 
     if (page === 'home') {
@@ -105,7 +104,7 @@ export class CameraManager {
     this.canvas.style.cursor = 'default'
 
     return new Promise((resolve) => {
-      // Tween 相机位置
+      // Tween 鐩告満浣嶇疆
       const posTween = gsap.to(this.camera.position, {
         x: view.position.x,
         y: view.position.y,
@@ -114,7 +113,7 @@ export class CameraManager {
         ease: 'power3.inOut',
       })
 
-      // Tween lookAt 目标
+      // Tween lookAt 鐩爣
       const lookAtTween = gsap.to(this.currentLookAt, {
         x: view.lookAt.x,
         y: view.lookAt.y,
@@ -139,8 +138,8 @@ export class CameraManager {
     this.mode = 'transitioning'
     this.isDragging = false
 
-    // 计算目标轨道位置（从当前角度继续，或使用合理的默认角度）
-    // 从当前相机位置反算角度，确保无缝衔接
+    // 璁＄畻鐩爣杞ㄩ亾浣嶇疆锛堜粠褰撳墠瑙掑害缁х画锛屾垨浣跨敤鍚堢悊鐨勯粯璁よ搴︼級
+    // 浠庡綋鍓嶇浉鏈轰綅缃弽绠楄搴︼紝纭繚鏃犵紳琛旀帴
     this.angle = Math.atan2(this.camera.position.z, this.camera.position.x)
     const targetPos = new THREE.Vector3(
       Math.cos(this.angle) * this.cameraDistance,
@@ -186,10 +185,10 @@ export class CameraManager {
     this.activeTweens = []
   }
 
-  /** 每帧更新 */
+  /** 姣忓抚鏇存柊 */
   update() {
     if (this.mode === 'orbit') {
-      // 完全保留原始的轨道旋转 + 惯性逻辑
+      // 瀹屽叏淇濈暀鍘熷鐨勮建閬撴棆杞?+ 鎯€ч€昏緫
       if (this.isDragging) {
         this.canvas.style.cursor = 'grabbing'
         this.velocity *= 0.5
@@ -204,14 +203,13 @@ export class CameraManager {
       this.camera.position.y = this.cameraHeight
       this.camera.lookAt(0, 0, 0)
 
-      // 同步 currentLookAt 以备后续转场时的起始值
+      // Keep the current look target ready for future transitions.
       this.currentLookAt.set(0, 0, 0)
     }
-    // transitioning 和 fixed 模式下由 GSAP 控制，不做额外计算
-    // fixed 模式中 camera.lookAt 已在最后一次 onUpdate 中设置
+    // transitioning and fixed modes are controlled by GSAP.
   }
 
-  /** 获取当前模式 */
+  /** Get the current camera mode. */
   getMode(): CameraMode {
     return this.mode
   }
@@ -229,3 +227,4 @@ export class CameraManager {
     window.removeEventListener('pointercancel', this.onPointerUpBound)
   }
 }
+
