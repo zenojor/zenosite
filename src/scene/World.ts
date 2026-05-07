@@ -24,10 +24,10 @@ export class World {
     dirLight.position.set(10, 20, 10)
     scene.add(dirLight)
 
-    // 添加镜面反射地面
+    // 添加镜面反射地面。
     const mirrorGeometry = new THREE.PlaneGeometry(100, 100)
 
-    // 改写内置 Shader，使其支持自定义透明度(opacity)
+    // 改写内置 Shader，使其支持自定义透明度（opacity）。
     const reflectorShader = (Reflector as any).ReflectorShader
     const customShader = {
       name: 'ReflectorShaderWithAlpha',
@@ -53,15 +53,15 @@ export class World {
       shader: customShader,
     })
 
-    // 必须开启此选项才能使自定义的透明度生效
+    // 必须开启此选项，才能让自定义透明度生效。
     ;(this.groundMirror.material as THREE.Material).transparent = true
 
     this.groundMirror.rotateX(-Math.PI / 2)
-    this.groundMirror.position.y = -2.5 // 初始估算高度，会在模型加载后更正
+    this.groundMirror.position.y = -2.5 // 初始估算高度，会在模型加载后修正。
     scene.add(this.groundMirror)
 
-    // 补丁：让真正的场景透明以透出 ASCII，但同时欺骗镜面，让镜面在渲染倒影时认为背景还是纯白的，
-    // 这样镜面的边界就会完美隐形，而不会变成一块突兀的灰板。
+    // 补丁：让真实场景透明以透出 ASCII，同时让镜面在渲染倒影时仍认为背景是纯白色。
+    // 这样镜面边界会自然隐藏，不会变成突兀的灰色平面。
     const originalOnBeforeRender = this.groundMirror.onBeforeRender.bind(this.groundMirror)
     this.groundMirror.onBeforeRender = function (
       renderer: THREE.WebGLRenderer,
@@ -77,14 +77,14 @@ export class World {
       scene.background = prevBg
     }
 
-    // 添加位于原点(0,0,0)的红色定位参考小球
+    // 添加位于原点 (0, 0, 0) 的红色定位参考小球。
     const markerGeometry = new THREE.SphereGeometry(0.1, 16, 16)
     const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 })
     this.originMarker = new THREE.Mesh(markerGeometry, markerMaterial)
     this.originMarker.visible = SHOW_MARKER
     scene.add(this.originMarker)
 
-    // 加载模型
+    // 加载模型。
     this.loadModel()
   }
 
@@ -110,19 +110,19 @@ export class World {
       // Center model at origin
       this.model.position.sub(center2)
 
-      // 精确将镜面放置在模型的正下方
+      // 精确将镜面放置在模型正下方。
       const groundY = -box2.getSize(new THREE.Vector3()).y / 2
       this.groundMirror.position.y = groundY
 
-      // 同步将红色的定位小球贴在地面上
+      // 同步将红色定位小球贴在地面上。
       this.originMarker.position.y = groundY
 
-      // 为了保持视觉平衡，将模型相对前移
+      // 为了保持视觉平衡，将模型相对前移。
       this.model.position.x += 0.5
       this.model.position.z += 0.3
       this.model.position.y -= 0.03
 
-      // 导入并播放模型中的动画
+      // 导入并播放模型中的动画。
       if (gltf.animations && gltf.animations.length > 0) {
         this.mixer = new THREE.AnimationMixer(this.model)
         gltf.animations.forEach((clip) => {
@@ -134,14 +134,14 @@ export class World {
     })
   }
 
-  /** 更新模型动画混合器 */
+  /** 更新模型动画混合器。 */
   update(delta: number) {
     if (this.mixer) {
       this.mixer.update(delta)
     }
   }
 
-  /** 窗口缩放时更新镜面的渲染目标分辨率 */
+  /** 窗口缩放时更新镜面的渲染目标分辨率。 */
   onResize() {
     this.groundMirror.getRenderTarget().setSize(
       window.innerWidth * window.devicePixelRatio,

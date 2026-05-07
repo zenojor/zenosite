@@ -9,10 +9,11 @@ import { createBadgeImage, createSocialBadgeLink, setBadgeImageHeights } from '.
 import { CopyToast } from './dom/copyToast'
 
 export class SceneLayout {
-  // ========== 涓婚〉 Dynamic Layout ==========
+  // ========== Home Dynamic Layout ==========
   private readonly BODY_COPY: string
   private readonly FONT = '18px "Courier New", Courier, monospace'
-  private readonly preparedBody: PreparedTextWithSegments
+  private preparedBody: PreparedTextWithSegments
+  private currentBodyRepeat = 0
 
   private readonly TITLE_LINES = [
     ' _______  _______  __    _  _______        ___   _______         _______        ______   _______  __   __ ',
@@ -31,14 +32,14 @@ export class SceneLayout {
   private titleLineHeight = 0
   private lastWindowWidth = 0
 
-  // DOM element pools - 涓婚〉
+  // DOM element pools - home page
   private titleLinesPool: HTMLDivElement[] = []
   private textLinesPool: HTMLDivElement[] = []
 
   // 2D canvas for text measurement
   private textMaskCtx: CanvasRenderingContext2D
 
-  // ========== SubPage 甯冨眬锛堥鏍煎紡鍖?ASCII Art锛?==========
+  // ========== Subpage layout (preformatted ASCII art) ==========
   private currentSubPageContent: SubPageContent | null = null
   private subPageLinesPool: HTMLDivElement[] = []
 
@@ -52,17 +53,23 @@ export class SceneLayout {
   private readonly copyToast = new CopyToast()
 
   /**
-   * 涓婚〉鏂囧瓧鍙搴︼細0 = 鍏ㄩ儴绌烘牸锛? = 姝ｅ父鏄剧ず銆?   * 杞満鏃剁敱 GSAP 椹卞姩锛屾瘡甯ч殢 update() 涓€璧峰簲鐢ㄣ€?   */
+   * 主页文字可见度：0 = 全部空格，1 = 正常显示。
+   * 转场时由 GSAP 驱动，并在每帧 update() 中应用。
+   */
   private homeVisibility = 1.0
   private homeVisibilityTween: gsap.core.Tween | null = null
 
   /**
-   * 涓轰富椤垫枃瀛楃紦瀛樼殑鍥哄畾闅忔満闃堝€笺€?   * Key = 鍏冪礌绱㈠紩, Value = 姣忎釜瀛楃鐨勯槇鍊兼暟缁勩€?   * 浠呭湪鍔ㄧ敾寮€濮嬫椂锛堟秷鏁?閲嶇幇锛夐噸鏂扮敓鎴愶紝纭繚鍔ㄧ敾鏈熼棿姣忎釜瀛楃鐨勯槇鍊肩ǔ瀹氥€?   */
+   * 为主页文字缓存固定随机阈值。
+   * Key = 元素索引，Value = 每个字符的阈值数组。
+   * 只在动画开始时重新生成，确保动画期间每个字符的阈值稳定。
+   */
   private homeCharThresholds: Map<number, number[]> = new Map()
 
   constructor() {
-    this.BODY_COPY = "My name is zeno, and this is my personal website. I used three.js and pretext to build this website, just wanna let u know if u are interested in it! I'm currently learning the front-end tech stack and aspire to become a front-end engineer! ".repeat(7)
-    this.preparedBody = prepareWithSegments(this.BODY_COPY, this.FONT)
+    this.BODY_COPY = "My name is zeno, and this is my personal website. I used three.js and pretext to build this website, just wanna let u know if u are interested in it! I'm currently learning the front-end tech stack and aspire to become a front-end engineer! "
+    this.preparedBody = prepareWithSegments('', this.FONT)
+    this.updatePreparedBody()
     this.TITLE_LETTER_SPACINGS = this.TITLE_LINES.map(() => '0px')
 
     const textMaskCanvas = document.createElement('canvas')
@@ -71,9 +78,17 @@ export class SceneLayout {
     this.textMaskCtx = textMaskCanvas.getContext('2d', { willReadFrequently: true })!
   }
 
-  // ========== 涓婚〉甯冨眬 ==========
+  // ========== Home layout ==========
 
-  /** 瀵瑰瓧绗︿覆搴旂敤鍙搴︽晥鏋滐紙浣跨敤缂撳瓨鐨勫浐瀹氶槇鍊硷級 */
+  private updatePreparedBody() {
+    const nextRepeat = responsive(HOME_LAYOUT.body.copyRepeat)
+    if (nextRepeat === this.currentBodyRepeat) return
+
+    this.currentBodyRepeat = nextRepeat
+    this.preparedBody = prepareWithSegments(this.BODY_COPY.repeat(nextRepeat), this.FONT)
+  }
+
+  /** 对字符串应用可见度效果，使用缓存的固定阈值。 */
   private applyVisibility(text: string, visibility: number, elementIndex: number): string {
     if (visibility >= 1.0) return text
     if (visibility <= 0.0) return ' '.repeat(text.length)
@@ -94,12 +109,14 @@ export class SceneLayout {
     return result
   }
 
-  /** 姣忓抚鏇存柊涓婚〉鍔ㄦ€佸竷灞€ - 淇濈暀鍘熷瀹炵幇鐨勬墍鏈夐€昏緫 */
+  /** 每帧更新主页动态布局。 */
   update(
     dynamicLayoutContainer: HTMLDivElement,
     navContainer: HTMLDivElement | null,
     asciiRenderer: AsciiRenderer,
   ) {
+    this.updatePreparedBody()
+
     // 1. Title Dimensions Update
     const titleRightSpace = responsive(HOME_LAYOUT.title.rightSpace)
     const maxLineLen = Math.max(...this.TITLE_LINES.map((l) => l.length))
@@ -239,20 +256,22 @@ export class SceneLayout {
     }
   }
 
-  // ========== SubPage 甯冨眬锛堥鏍煎紡鍖?ASCII Art锛屽彸瀵归綈锛?==========
+  // ========== Subpage layout (preformatted ASCII art, right aligned) ==========
 
-  /** 鑾峰彇 SubPage 鎵€鏈夋椿璺冪殑鏂囧瓧 DOM 鍏冪礌 */
+  /** 获取 SubPage 所有活跃的文字 DOM 元素。 */
   getSubPageElements(): HTMLDivElement[] {
     return [...this.subPageLinesPool]
   }
 
-  /** 鑾峰彇 SubPage 鎵€鏈夋椿璺冪殑鏂囧瓧鍐呭 */
+  /** 获取 SubPage 所有活跃的文字内容。 */
   getSubPageTexts(): string[] {
     return this.subPageLinesPool.map((el) => el.textContent || '')
   }
 
   /**
-   * 娓叉煋瀛愰〉闈?鈥?棰勬牸寮忓寲 ASCII Art 妗嗭紝鍙冲榻愩€?   * 鑷姩璁＄畻瀛楀彿浣挎渶闀胯鎭板ソ濉弧鍙敤鍖哄煙銆?   */
+   * 渲染子页面：预格式化 ASCII Art 文本块，支持右对齐。
+   * 自动计算字号，让最长行尽量填满可用区域。
+   */
   updateSubPage(
     pageName: Exclude<PageName, 'home'>,
     dynamicLayoutContainer: HTMLDivElement,
@@ -266,20 +285,20 @@ export class SceneLayout {
     const rightMargin = responsive(pageConfig.rightMargin)
     const leftMargin = responsive(pageConfig.leftMargin)
 
-    // 鎵惧埌鏈€闀胯鐨勫瓧绗︽暟
+    // 找到最长行的字符数。
     const maxLineLen = Math.max(...content.lines.map((l) => l.length))
 
     const availableWidth = Math.max(200, window.innerWidth / 2 - rightMargin)
 
-    // 绛夊瀛椾綋锛氭瘡涓瓧绗﹀搴?鈮?fontSize 脳 0.6
+    // 等宽字体：每个字符宽度约等于 fontSize * 0.6。
     const targetFontSize = Math.max(pageConfig.minFontSize, Math.min(pageConfig.maxFontSize, Math.floor(availableWidth / (maxLineLen * 0.6))))
-    const lineHeight = targetFontSize // 涓庝富椤典竴鑷?
-    // 鏁翠綋鍐呭楂樺害
+    const lineHeight = targetFontSize // 与主页一致。
+    // 整体内容高度。
     const totalHeight = content.lines.length * lineHeight
 
     const fontStr = `${targetFontSize}px ${this.HEADLINE_FONT_FAMILY}`
 
-    // 鈹€鈹€ Scrollable mode 鈹€鈹€
+    // ---- Scrollable mode ----
     if (content.scrollable) {
       this.updateSubPageScrollable(
         content, pageConfig, dynamicLayoutContainer,
@@ -289,15 +308,15 @@ export class SceneLayout {
       return
     }
 
-    // 鈹€鈹€ Normal (non-scrollable) mode 鈹€鈹€
-    // 鍨傜洿灞呬腑
+    // ---- Normal (non-scrollable) mode ----
+    // 垂直居中。
     let startY = Math.max(20, Math.floor((window.innerHeight - totalHeight) / 2))
 
     if (pageConfig.verticalOffset > 0) {
       startY += Math.floor(window.innerHeight * pageConfig.verticalOffset)
     }
 
-    // 姘村钩鍙冲榻愶細浠庡睆骞曞彸杈瑰噺鍘?margin
+    // 水平右对齐：从屏幕右侧减去 margin。
     const rightPos = rightMargin
 
     // DOM pool management
@@ -339,13 +358,14 @@ export class SceneLayout {
       const badgeLineIndex = content.badgeAnchorLineIndex + 1
       const badgeY = startY + badgeLineIndex * lineHeight + 2
 
-      // 璁＄畻鏂囨湰鍧楀彸杈圭晫鐨?X 鍧愭爣锛堜笌鏂囧瓧瀵归綈锛?      this.textMaskCtx.font = fontStr
+      // 计算文本块右边界的 X 坐标，与文字对齐。
+      this.textMaskCtx.font = fontStr
       const sampleLine = content.lines[content.badgeAnchorLineIndex]!
       const textBlockWidth = this.textMaskCtx.measureText(sampleLine).width
       const badgeRight = window.innerWidth - rightMargin
       const badgeStartX = pageConfig.textAlign === 'left'
         ? leftMargin
-        : badgeRight - textBlockWidth + targetFontSize * 0.6 * 4 // 缂╄繘 ~4 瀛楃
+        : badgeRight - textBlockWidth + targetFontSize * 0.6 * 4 // 缩进约 4 个字符。
 
       if (!this.badgeContainer) {
         this.badgeContainer = document.createElement('div')
@@ -359,7 +379,7 @@ export class SceneLayout {
         dynamicLayoutContainer.appendChild(this.badgeContainer)
       }
 
-      // 纭繚鍐呭鍚屾
+      // 确保内容同步。
       const existingImgs = Array.from(this.badgeContainer.querySelectorAll('img'))
       if (existingImgs.length !== content.badges.length) {
         this.badgeContainer.innerHTML = ''
@@ -374,7 +394,7 @@ export class SceneLayout {
       this.badgeContainer.style.width = `${badgeAreaWidth}px`
       this.badgeContainer.style.display = 'flex'
 
-      // 鏇存柊 badge 鍥剧墖楂樺害
+      // 更新 badge 图片高度。
       setBadgeImageHeights(this.badgeContainer, lineHeight)
     } else {
       if (this.badgeContainer) {
@@ -434,7 +454,7 @@ export class SceneLayout {
     }
   }
 
-  /** 娓叉煋鍙粴鍔ㄥ瓙椤甸潰 鈥?闀垮唴瀹瑰湪鍥哄畾鍖哄煙鍐呴儴婊氬姩 */
+  /** 渲染可滚动子页面：长内容在固定区域内部滚动。 */
   private updateSubPageScrollable(
     content: SubPageContent,
     pageConfig: (typeof SUB_PAGE_LAYOUT)[keyof typeof SUB_PAGE_LAYOUT],
@@ -517,7 +537,7 @@ export class SceneLayout {
     // Let content define the horizontal footprint so the block does not feel like a fixed-width column.
     this.scrollInnerWrapper!.style.height = 'auto'
 
-    // DOM pool 鈥?lines go inside scrollInnerWrapper
+    // DOM pool: lines go inside scrollInnerWrapper.
     const parent = this.scrollInnerWrapper!
     while (this.subPageLinesPool.length < content.lines.length) {
       const el = document.createElement('div')
@@ -554,17 +574,17 @@ export class SceneLayout {
     }
   }
 
-  /** 鑾峰彇 badge 瀹瑰櫒鍏冪礌锛堢敤浜庡姩鐢伙級 */
+  /** 获取 badge 容器元素，用于动画。 */
   getBadgeContainer(): HTMLDivElement | null {
     return this.badgeContainer
   }
 
-  /** 鑾峰彇 social badge 瀹瑰櫒鍏冪礌锛堢敤浜庡姩鐢伙級 */
+  /** 获取 social badge 容器元素，用于动画。 */
   getSocialBadgeContainer(): HTMLDivElement | null {
     return this.socialBadgeContainer
   }
 
-  /** 鑾峰彇 SubPage 椤甸潰鐨勬墍鏈夋枃鏈潡鍖哄煙锛岀敤浜?ASCII 瑙勯伩锛堢簿纭埌琛岋級 */
+  /** 获取 SubPage 页面所有文本块区域，用于 ASCII 避让，精确到行。 */
   getSubPageRects(): { x: number; y: number; width: number; height: number }[] {
     const rects: { x: number; y: number; width: number; height: number }[] = []
     if (!this.currentSubPageContent) return rects
@@ -612,7 +632,7 @@ export class SceneLayout {
       })
     }
 
-    // 2. Badge 瀹瑰櫒閬胯
+    // 2. Badge 容器避让。
     if (this.badgeContainer && this.badgeContainer.style.display !== 'none') {
       const badgeRect = this.badgeContainer.getBoundingClientRect()
 
@@ -624,7 +644,7 @@ export class SceneLayout {
       })
     }
 
-    // 3. Social Badge 瀹瑰櫒閬胯
+    // 3. Social Badge 容器避让。
     if (this.socialBadgeContainer && this.socialBadgeContainer.style.display !== 'none') {
       const socialRect = this.socialBadgeContainer.getBoundingClientRect()
 
@@ -639,7 +659,7 @@ export class SceneLayout {
     return rects
   }
 
-  /** 娓呴櫎 SubPage 鐨?DOM 鍏冪礌 */
+  /** 清除主页 DOM 元素。 */
   clearHome() {
     for (const el of this.titleLinesPool) {
       el.remove()
@@ -684,12 +704,12 @@ export class SceneLayout {
   }
 
   /**
-   * 涓婚〉鏂囧瓧娑堟暎鍔ㄧ敾锛氬彲瑙佸害浠?1 鈫?0
-   * 鍦ㄥ姩鐢绘湡闂?update() 姣忓抚浠嶈繍琛岋紝鑷姩搴旂敤鏁堟灉
+   * 主页文字消散动画：可见度从 1 到 0。
+   * 动画期间 update() 仍逐帧运行，并自动应用效果。
    */
   animateHomeDissolve(duration = 1.0): Promise<void> {
     this.killHomeTween()
-    // 鍔ㄧ敾寮€濮嬫椂閲嶆柊鐢熸垚闃堝€硷紝浣挎瘡娆℃秷鏁ｇ殑娉㈠墠鍥炬涓嶅悓
+    // 动画开始时重新生成阈值，让每次消散的波前图案不同。
     this.homeCharThresholds.clear()
     return new Promise((resolve) => {
       this.homeVisibilityTween = gsap.to(this, {
@@ -705,13 +725,13 @@ export class SceneLayout {
   }
 
   /**
-   * 涓婚〉鏂囧瓧閲嶇幇鍔ㄧ敾锛氬彲瑙佸害浠?0 鈫?1
-   * 鍦ㄥ姩鐢绘湡闂?update() 姣忓抚浠嶈繍琛岋紝鑷姩搴旂敤鏁堟灉
+   * 主页文字重现动画：可见度从 0 到 1。
+   * 动画期间 update() 仍逐帧运行，并自动应用效果。
    */
   animateHomeMaterialize(duration = 1.0): Promise<void> {
     this.killHomeTween()
     this.homeVisibility = 0
-    // 鍔ㄧ敾寮€濮嬫椂閲嶆柊鐢熸垚闃堝€硷紝浣挎瘡娆￠噸鐜扮殑娉㈠墠鍥炬涓嶅悓
+    // 动画开始时重新生成阈值，让每次重现的波前图案不同。
     this.homeCharThresholds.clear()
     return new Promise((resolve) => {
       this.homeVisibilityTween = gsap.to(this, {
@@ -726,7 +746,7 @@ export class SceneLayout {
     })
   }
 
-  /** 绔嬪嵆璁剧疆涓婚〉鏂囧瓧鍙搴︼紙鏃犲姩鐢伙級 */
+  /** 立即设置主页文字可见度（无动画）。 */
   setHomeVisibility(v: number) {
     this.killHomeTween()
     this.homeVisibility = v

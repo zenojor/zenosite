@@ -1,42 +1,66 @@
-# personalSite
+# Personal Site
 
-This template should help get you started developing with Vue 3 in Vite.
+An interactive personal portfolio built with Vue 3, TypeScript, Three.js, GSAP, and a custom ASCII rendering layer.
 
-## Recommended IDE Setup
+The site presents a full-screen 3D scene with responsive navigation, animated page transitions, ASCII-style text layouts, social badges, and mobile-specific contact affordances.
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+## Tech Stack
 
-## Recommended Browser Setup
+- Vue 3
+- Vue Router
+- TypeScript
+- Vite
+- Three.js
+- GSAP
+- @chenglou/pretext
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+## Project Structure
 
-## Type Support for `.vue` Imports in TS
+```text
+src/
+  assets/          Static styles and 3D model assets
+  config/          Camera, layout, breakpoint, and ASCII settings
+  content/         Portfolio copy and badge content
+  router/          Route definitions and page helpers
+  scene/           Three.js scene, ASCII renderer, layout, and animation runtime
+  state/           Shared navigation state
+  views/           Vue page-level view components
+```
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+## Getting Started
 
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
+Install dependencies:
 
 ```sh
 npm install
 ```
 
-### Compile and Hot-Reload for Development
+Start the development server:
 
 ```sh
 npm run dev
 ```
 
-### Type-Check, Compile and Minify for Production
+Build for production:
 
 ```sh
 npm run build
 ```
+
+Preview the production build locally:
+
+```sh
+npm run preview
+```
+
+## Deployment
+
+This project is a static Vite app. The production output is generated in `dist/`.
+
+The `public/_redirects` file is included for SPA fallback routing on Netlify-style static hosts.
+
+## Notes
+
+- The 3D model is stored at `src/assets/models/cloud-from-world-of-final-fantasy.glb`.
+- Personal profile copy, project descriptions, and social badge links live in `src/content/siteContent.ts`.
+- The package is marked `private` to prevent accidental npm publishing; that does not affect making the GitHub repository public.

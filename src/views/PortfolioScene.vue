@@ -189,7 +189,7 @@ canvas {
   white-space: nowrap;
 }
 
-/* 全局 UI 统一风格（参考主标题颜色 #595959，避免纯�?#111 过重�?*/
+/* 全局 UI 统一风格：参考主标题颜色 #595959，避免纯黑 #111 过重。 */
 .back-btn, .nav-container {
   font-family: 'Courier New', Courier, monospace;
   font-size: 16px;

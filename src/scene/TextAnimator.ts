@@ -1,25 +1,25 @@
 import gsap from 'gsap'
 
 /**
- * 通用的"字符消散/重现"动画器。
- * 每个字符有一个预先分配的固定阈值，按波前顺序消散/重现，避免每帧随机闪烁。
+ * 通用字符消散/重现动画器。
+ * 每个字符都有一个预先分配的固定阈值，按波前顺序消散/重现，避免每帧随机闪烁。
  */
 export class TextAnimator {
   /**
-   * 为每行文字预生成随机阈值数组（每个字符一个固定阈值）
+   * 为每行文字预生成随机阈值数组，每个字符一个固定阈值。
    */
   private static buildThresholds(lengths: number[]): number[][] {
     return lengths.map((len) => {
       const thresholds: number[] = []
       for (let c = 0; c < len; c++) {
-        thresholds.push(Math.random() * 0.6 + 0.15) // 0.15~0.75 范围更宽，过渡更自然
+        thresholds.push(Math.random() * 0.6 + 0.15) // 0.15~0.75 范围更宽，过渡更自然。
       }
       return thresholds
     })
   }
 
   /**
-   * 消散动画：字符按固定阈值逐个变为空格直到完全消失
+   * 消散动画：字符按固定阈值逐个变为空格，直到完全消失。
    */
   static dissolve(elements: HTMLDivElement[], duration = 1.0): Promise<void> {
     if (elements.length === 0) return Promise.resolve()
@@ -59,7 +59,7 @@ export class TextAnimator {
   }
 
   /**
-   * 重现动画：空格按固定阈值逐个变为目标字符
+   * 重现动画：空格按固定阈值逐个变为目标字符。
    */
   static materialize(
     elements: HTMLDivElement[],

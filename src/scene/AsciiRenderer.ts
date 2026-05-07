@@ -80,7 +80,7 @@ export class AsciiRenderer {
     this.maskMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff })
     this.maskBuffer = new Uint8Array(this.maskWidth * this.maskHeight * 4)
 
-    // Configure ASCII render target (鍒濆榛樿涓哄乏鍗婂睆)
+    // 配置 ASCII 渲染目标，默认使用左半屏。
     this.asciiCols = Math.floor((window.innerWidth / 2) / CHAR_WIDTH)
     this.asciiRows = Math.floor(window.innerHeight / CHAR_HEIGHT)
     this.asciiRenderTarget = new THREE.WebGLRenderTarget(this.asciiCols, this.asciiRows)
@@ -180,9 +180,9 @@ export class AsciiRenderer {
     scene.overrideMaterial = this.asciiMaterial
     groundMirror.visible = false
 
-    // --- 鐩告満 鎶曞奖鐭╅樀骞崇Щ (View Offset) 鏍稿績閫昏緫 ---
+    // --- 相机投影矩阵平移（View Offset）核心逻辑 ---
 
-    // 1. 鑾峰彇妯″瀷涓績鍦ㄥ綋鍓嶅睆骞曚笂鐨勬姇褰辩偣 (鍍忕礌)
+    // 1. 获取模型中心在当前屏幕上的投影点（像素）。
     // Update camera matrices before projecting to screen space.
     camera.updateMatrixWorld()
     camera.updateProjectionMatrix()
@@ -199,7 +199,7 @@ export class AsciiRenderer {
     const pxX = (modelProjected.x * 0.5 + 0.5) * window.innerWidth
     const pxY = (1 - (modelProjected.y * 0.5 + 0.5)) * window.innerHeight
 
-    // 2. 璁＄畻瑙嗗浘鍋忕Щ (View Offset)
+    // 2. 计算视图偏移（View Offset）。
     const zoom = ASCII_CONFIG.home.zoom
     // The sub-viewport dimensions must match the render target ratio to avoid stretching.
     const subWidth = (window.innerWidth / 2) / zoom
@@ -210,7 +210,7 @@ export class AsciiRenderer {
 
     // Apply a view offset without changing the camera direction.
     camera.setViewOffset(window.innerWidth, window.innerHeight, offsetX, offsetY, subWidth, subHeight)
-    // 閲嶇疆棰濆 zoom
+    // 重置额外 zoom。
     camera.zoom = 1
     camera.updateProjectionMatrix()
 
@@ -246,12 +246,12 @@ export class AsciiRenderer {
       for (let c = 0; c < this.asciiCols; c++) {
         const absoluteScreenPointX = screenOffsetX + c * CHAR_WIDTH
 
-        // 1. 瑙勯伩 3D 杞粨 (Home 妯″紡宸︿晶閫昏緫)
+        // 1. 避让 3D 轮廓（Home 模式左侧逻辑）。
         if (options.mode === 'home' && c > limitCol) {
           break
         }
 
-        // 2. 瑙勯伩 3D 杞粨 (About 妯″紡鍙屽悜瑙勯伩 - 鍩轰簬鍏ㄥ睆 maskBuffer 娓叉煋鍑虹殑浜害)
+        // 2. 避让 3D 轮廓（About/Subpage 基于全屏 maskBuffer 的亮度）。
         // Sample the character center to avoid the visible model silhouette.
         const u = (absoluteScreenPointX + CHAR_WIDTH / 2) / window.innerWidth
         const v = 1 - ((lineTop + CHAR_HEIGHT / 2) / window.innerHeight)
@@ -289,7 +289,7 @@ export class AsciiRenderer {
           continue
         }
 
-        // 4. 杞崲鐪熷疄鐨勫満鏅寒搴︿负瀛楃
+        // 4. 将真实场景亮度转换为字符。
         const pixelIdx = (r * this.asciiCols + c) * 4
         const brightness = (this.asciiContentBuffer[pixelIdx]! + this.asciiContentBuffer[pixelIdx + 1]! + this.asciiContentBuffer[pixelIdx + 2]!) / 3
         const proportion = brightness / 255.0
@@ -353,7 +353,7 @@ export class AsciiRenderer {
     camera.updateProjectionMatrix()
   }
 
-  /** About Pass: FULL SCREEN version specifically for瀛愰〉闈紝涓庝富椤甸€昏緫褰诲簳闅旂 */
+  /** About/Subpage Pass: full-screen version, isolated from the home-page ASCII logic. */
   renderAboutAsciiPass(
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
@@ -376,7 +376,7 @@ export class AsciiRenderer {
     camera.updateMatrixWorld()
     camera.updateProjectionMatrix()
 
-    // 1. 鑾峰彇杩借釜鐩爣涓績
+    // 1. 获取追踪目标中心。
     const projectionTarget = new THREE.Vector3(0, 0, 0)
     if ((options.trackModelCenter ?? true) && model) {
       model.updateMatrixWorld()
@@ -388,7 +388,7 @@ export class AsciiRenderer {
     const pxX = (modelProjected.x * 0.5 + 0.5) * window.innerWidth
     const pxY = (1 - (modelProjected.y * 0.5 + 0.5)) * window.innerHeight
 
-    // 2. 璁＄畻瑙嗗浘鍋忕Щ (2.0x 鍏ㄥ睆瑁佸壀锛屼笉浜х敓鎴柇)
+    // 2. 计算视图偏移（2.0x 全屏裁剪，不产生截断）。
     const zoom = options.zoom ?? 2.0
     const fullWidth = window.innerWidth * zoom
     const fullHeight = window.innerHeight * zoom
@@ -422,10 +422,10 @@ export class AsciiRenderer {
       for (let c = 0; c < this.aboutAsciiCols; c++) {
         const absoluteScreenX = c * CHAR_WIDTH
 
-        // --- 鏍稿績瑙勯伩閫昏緫 ---
+        // --- 核心避让逻辑 ---
 
         // 1. Avoid the 3D silhouette using the full-screen mask buffer and neighbor sampling.
-        // 浣跨敤瀛楃涓績閲囨牱锛屾彁楂橀伩闅滅簿鍑嗗害
+        // 使用字符中心采样，提高避障精度。
         const u = (absoluteScreenX + CHAR_WIDTH / 2) / window.innerWidth
         const v = 1 - ((lineTop + CHAR_HEIGHT / 2) / window.innerHeight)
         const mx = Math.floor(u * this.maskWidth)
@@ -453,7 +453,7 @@ export class AsciiRenderer {
           continue
         }
 
-        // 2. 瑙勯伩 DOM 鏂囨
+        // 2. 避让 DOM 文本。
         let hitDom = false
         const paddingX = options.domPaddingX ?? 12
         const paddingY = options.domPaddingY ?? 2
@@ -475,7 +475,7 @@ export class AsciiRenderer {
           continue
         }
 
-        // 3. 鐢熸垚瀛楃閫昏緫
+        // 3. 生成字符。
         const pixelIdx = (r * this.aboutAsciiCols + c) * 4
         const brightness = (this.aboutAsciiContentBuffer[pixelIdx]! + this.aboutAsciiContentBuffer[pixelIdx + 1]! + this.aboutAsciiContentBuffer[pixelIdx + 2]!) / 3
         const proportion = brightness / 255.0
@@ -483,7 +483,7 @@ export class AsciiRenderer {
         let ch = MONO_RAMP[rampIdx]!
 
         if (this.asciiVisibility < 1.0) {
-          const key = r * 20000 + c // 澧炲ぇ Key 闃叉纰版挒
+          const key = r * 20000 + c // 放大 key，避免碰撞。
           let threshold = this.asciiCharThresholds.get(key)
           if (threshold === undefined) {
             threshold = Math.random() * 0.6 + 0.15
@@ -496,7 +496,7 @@ export class AsciiRenderer {
       asciiLinesData.push({ x: 0, y: lineTop, text: rowChars })
     }
 
-    // 鏇存柊 DOM
+    // 更新 DOM。
     while (this.asciiLinesPool.length < asciiLinesData.length) {
       const el = document.createElement('div')
       el.className = 'ascii-line'
@@ -535,7 +535,7 @@ export class AsciiRenderer {
     camera.updateProjectionMatrix()
   }
 
-  /** 娓呴櫎 ASCII DOM 姹狅紙鐢ㄤ簬杞満鍚庨噸鏂扮敓鎴愬叏鏂板厓绱狅級 */
+  /** Subpage ASCII pass delegates to the full-screen ASCII renderer. */
   renderSubPageAsciiPass(
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
@@ -556,7 +556,7 @@ export class AsciiRenderer {
 
   /**
    * ASCII dissolve animation: visibility goes from 1 to 0.
-   * 鍦ㄥ姩鐢绘湡闂达紝renderAsciiPass 姣忓抚浠嶅湪杩愯锛屼細鑷姩搴旂敤鏁堟灉
+   * 动画期间 renderAsciiPass 仍逐帧运行，并自动应用可见度效果。
    */
   animateAsciiDissolve(duration = 1.0): Promise<void> {
     this.killAsciiTween()
@@ -577,7 +577,7 @@ export class AsciiRenderer {
 
   /**
    * ASCII materialize animation: visibility goes from 0 to 1.
-   * 鍦ㄥ姩鐢绘湡闂达紝renderAsciiPass 姣忓抚浠嶅湪杩愯锛屼細鑷姩搴旂敤鏁堟灉
+   * 动画期间 renderAsciiPass 仍逐帧运行，并自动应用可见度效果。
    */
   animateAsciiMaterialize(duration = 1.0): Promise<void> {
     this.killAsciiTween()
@@ -597,7 +597,7 @@ export class AsciiRenderer {
     })
   }
 
-  /** 绔嬪嵆璁剧疆 ASCII 鍙搴︼紙鏃犲姩鐢伙級 */
+  /** 立即设置 ASCII 可见度（无动画）。 */
   setAsciiVisibility(v: number) {
     this.killAsciiTween()
     this.asciiVisibility = v

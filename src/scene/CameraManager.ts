@@ -15,23 +15,23 @@ interface CameraViewDef {
 export class CameraManager {
   camera: THREE.PerspectiveCamera
 
-  // 褰撳墠妯″紡
+  // 当前模式
   private mode: CameraMode = 'orbit'
 
-  // Orbit 妯″紡鍙傛暟
+  // Orbit 模式参数
   private angle = 0
   private get cameraDistance() { return CAMERA_CONFIG.orbit.distance }
   private get cameraHeight() { return CAMERA_CONFIG.orbit.height }
 
-  // 榧犳爣/瑙︽帶鎷栨嫿鎺у埗
+  // 鼠标/触控拖拽控制
   private isDragging = false
   private previousX = 0
   private velocity = 0
 
-  // Fixed 妯″紡锛氬綋鍓?lookAt 鐩爣锛堢敤浜庡钩婊戣繃娓★級
+  // Fixed 模式：当前 lookAt 目标，用于平滑过渡。
   private currentLookAt = new THREE.Vector3(0, 0, 0)
 
-  // 娲昏穬鐨?GSAP tween锛堢敤浜庡彇娑堬級
+  // 活跃的 GSAP tween，用于取消动画。
   private activeTweens: gsap.core.Tween[] = []
 
   // Bound event handlers
@@ -58,7 +58,7 @@ export class CameraManager {
   }
 
   private onPointerDown(e: PointerEvent) {
-    // 鍙湁 orbit 妯″紡涓嬫墠鍏佽鎷栨嫿
+    // 只有 orbit 模式下才允许拖拽。
     if (this.mode !== 'orbit') return
     this.isDragging = true
     this.previousX = e.clientX
@@ -79,10 +79,11 @@ export class CameraManager {
   }
 
   /**
-   * 骞虫粦杩囨浮鍒版寚瀹氶〉闈㈢殑鐩告満瑙嗚銆?   * @returns Promise锛屽湪杞満瀹屾垚鍚?resolve
+   * 平滑过渡到指定页面的相机视角。
+   * @returns Promise that resolves when the transition completes.
    */
   transitionTo(page: PageName, duration = 0.8): Promise<void> {
-    // 鍙栨秷鎵€鏈夎繘琛屼腑鐨?tween
+    // 取消所有进行中的 tween。
     this.killActiveTweens()
 
     if (page === 'home') {
@@ -104,7 +105,7 @@ export class CameraManager {
     this.canvas.style.cursor = 'default'
 
     return new Promise((resolve) => {
-      // Tween 鐩告満浣嶇疆
+      // Tween 相机位置。
       const posTween = gsap.to(this.camera.position, {
         x: view.position.x,
         y: view.position.y,
@@ -113,7 +114,7 @@ export class CameraManager {
         ease: 'power3.inOut',
       })
 
-      // Tween lookAt 鐩爣
+      // Tween lookAt 目标。
       const lookAtTween = gsap.to(this.currentLookAt, {
         x: view.lookAt.x,
         y: view.lookAt.y,
@@ -138,8 +139,7 @@ export class CameraManager {
     this.mode = 'transitioning'
     this.isDragging = false
 
-    // 璁＄畻鐩爣杞ㄩ亾浣嶇疆锛堜粠褰撳墠瑙掑害缁х画锛屾垨浣跨敤鍚堢悊鐨勯粯璁よ搴︼級
-    // 浠庡綋鍓嶇浉鏈轰綅缃弽绠楄搴︼紝纭繚鏃犵紳琛旀帴
+    // 计算目标轨道位置：从当前相机位置反算角度，确保无缝衔接。
     this.angle = Math.atan2(this.camera.position.z, this.camera.position.x)
     const targetPos = new THREE.Vector3(
       Math.cos(this.angle) * this.cameraDistance,
@@ -185,10 +185,10 @@ export class CameraManager {
     this.activeTweens = []
   }
 
-  /** 姣忓抚鏇存柊 */
+  /** 每帧更新。 */
   update() {
     if (this.mode === 'orbit') {
-      // 瀹屽叏淇濈暀鍘熷鐨勮建閬撴棆杞?+ 鎯€ч€昏緫
+      // 保留轨道旋转和惯性逻辑。
       if (this.isDragging) {
         this.canvas.style.cursor = 'grabbing'
         this.velocity *= 0.5

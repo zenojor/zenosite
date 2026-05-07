@@ -9,6 +9,7 @@ export const HOME_LAYOUT = {
     minFontSize: 6,
   },
   body: {
+    copyRepeat: { desktop: 7, medium: 5, tablet: 3, mobile: 2 },
     xOffset: 20,
     yStart: 60,
     rightPadding: 40,
