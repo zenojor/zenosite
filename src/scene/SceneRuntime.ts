@@ -10,6 +10,7 @@ import { ASCII_CONFIG } from '@/config/ascii'
 import { isMobileViewport, responsive } from '@/config/breakpoints'
 import type { PageName } from '@/router/pages'
 import { activePage, setPage, isAppTransitioning } from '@/state/navigationState'
+import { getThemeSurfaceColor, themeMode } from '@/state/themeState'
 
 export interface SceneRuntimeRefs {
   canvas: HTMLCanvasElement
@@ -37,6 +38,7 @@ export class SceneRuntime {
   private runSubPageDuringTransition = false
 
   private stopWatcher: (() => void) | null = null
+  private stopThemeWatcher: (() => void) | null = null
   private pendingPage: PageName | null = null
 
   private get isMobileMode() {
@@ -48,7 +50,7 @@ export class SceneRuntime {
 
     this.scene = new THREE.Scene()
     this.renderer = new THREE.WebGLRenderer({ canvas: refs.canvas, antialias: true, alpha: true })
-    this.renderer.setClearColor(0xffffff, 0)
+    this.renderer.setClearColor(getThemeSurfaceColor(), 0)
     this.renderer.setSize(window.innerWidth, window.innerHeight)
     this.renderer.setPixelRatio(window.devicePixelRatio)
 
@@ -83,6 +85,11 @@ export class SceneRuntime {
         void this.handlePageTransition(this.currentPage, newPage)
       }
     })
+
+    this.stopThemeWatcher = watch(themeMode, (mode) => {
+      this.renderer.setClearColor(getThemeSurfaceColor(mode), 0)
+      this.world.setTheme(mode)
+    }, { immediate: true })
 
     // Initialize UI visibility from current page state.
     if (activePage.value !== 'home') {
@@ -372,6 +379,7 @@ export class SceneRuntime {
   dispose() {
     if (this.animationId !== null) cancelAnimationFrame(this.animationId)
     if (this.stopWatcher) this.stopWatcher()
+    if (this.stopThemeWatcher) this.stopThemeWatcher()
     window.removeEventListener('resize', this.onResize)
     this.cameraManager.dispose()
     this.asciiRenderer.dispose()

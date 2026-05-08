@@ -4,7 +4,7 @@ export const HOME_LAYOUT = {
   title: {
     startY: 40,
     rightSpace: { desktop: 40, mobile: 20 },
-    color: '#595959',
+    color: 'var(--text-color)',
     maxFontSize: 16,
     minFontSize: 6,
   },
