@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { SceneRuntime } from '@/scene/SceneRuntime'
 import { BREAKPOINTS } from '@/config/breakpoints'
 import { getPageFromRoute, PAGE_PATHS, type PageName } from '@/router/pages'
-import { activePage, setPage } from '@/state/navigationState'
+import { activePage, isAppTransitioning, setPage } from '@/state/navigationState'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const asciiRef = ref<HTMLDivElement | null>(null)
@@ -29,6 +29,8 @@ const updateViewport = () => {
 }
 
 const handleNav = (page: PageName) => {
+  if (isAppTransitioning.value) return
+
   const targetPage = activePage.value === page && page !== 'home' ? 'home' : page
   void router.push(PAGE_PATHS[targetPage])
 }
@@ -83,8 +85,10 @@ onBeforeUnmount(() => {
     <!-- Back Button -->
     <div 
       class="back-btn" 
+      :class="{ 'is-disabled': isAppTransitioning }"
       ref="backRef"
       @click="handleNav('home')"
+      :aria-disabled="isAppTransitioning"
       style="display: none;" 
     >
       [ Back ]
@@ -110,7 +114,9 @@ onBeforeUnmount(() => {
     <!-- Nav Container -->
     <div 
       class="nav-container" 
+      :class="{ 'is-disabled': isAppTransitioning }"
       ref="navRef"
+      :aria-disabled="isAppTransitioning"
     >
       <span @click="handleNav('about')">About</span>
       <span @click="handleNav('experience')">Experience</span>
@@ -226,6 +232,10 @@ canvas {
 }
 .nav-container span:hover {
   opacity: 0.6;
+}
+.back-btn.is-disabled,
+.nav-container.is-disabled {
+  pointer-events: none;
 }
 
 @media (max-width: 767px) {

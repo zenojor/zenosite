@@ -8,7 +8,6 @@ export const activePage: Ref<PageName> = ref('home')
 export const isAppTransitioning: Ref<boolean> = ref(false)
 
 /** Switch the active page. */
-export function setPage(page: PageName, force: boolean = false) {
-  if (isAppTransitioning.value && !force) return
+export function setPage(page: PageName, _force: boolean = false) {
   activePage.value = page
 }

@@ -37,6 +37,7 @@ export class SceneRuntime {
   private runSubPageDuringTransition = false
 
   private stopWatcher: (() => void) | null = null
+  private pendingPage: PageName | null = null
 
   private get isMobileMode() {
     return isMobileViewport()
@@ -69,8 +70,17 @@ export class SceneRuntime {
         return
       }
 
-      if (newPage !== oldPage && !isAppTransitioning.value) {
-        this.handlePageTransition(oldPage, newPage)
+      if (newPage === oldPage || newPage === this.currentPage) {
+        return
+      }
+
+      if (isAppTransitioning.value) {
+        this.pendingPage = newPage
+        return
+      }
+
+      if (newPage !== this.currentPage) {
+        void this.handlePageTransition(this.currentPage, newPage)
       }
     })
 
@@ -124,116 +134,135 @@ export class SceneRuntime {
       return
     }
 
-    if (isAppTransitioning.value) return
+    if (from === to) return
+
+    if (isAppTransitioning.value) {
+      this.pendingPage = to
+      return
+    }
+
     isAppTransitioning.value = true
 
     const navSpans = Array.from(this.domRefs.navContainer?.querySelectorAll('span') || []) as unknown as HTMLDivElement[]
     const navTexts = ['About', 'Experience', 'Projects', 'Contact']
     const backBtn = this.domRefs.backButton
 
-    if (from === 'home') {
-      this.runHomeDuringTransition = true
-      await Promise.all([
-        this.sceneLayout.animateHomeDissolve(1.0),
-        this.asciiRenderer.animateAsciiDissolve(1.0),
-        TextAnimator.dissolve(navSpans, 0.8),
-      ])
-      if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'none'
-      this.runHomeDuringTransition = false
-      this.asciiRenderer.clearAsciiPool()
+    try {
+      if (from === 'home') {
+        this.runHomeDuringTransition = true
+        await Promise.all([
+          this.sceneLayout.animateHomeDissolve(1.0),
+          this.asciiRenderer.animateAsciiDissolve(1.0),
+          TextAnimator.dissolve(navSpans, 0.8),
+        ])
+        if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'none'
+        this.runHomeDuringTransition = false
+        this.asciiRenderer.clearAsciiPool()
 
-      await this.cameraManager.transitionTo(to, 1.2)
-      this.currentPage = to
+        await this.cameraManager.transitionTo(to, 1.2)
+        this.currentPage = to
 
-      if (to !== 'home') {
+        if (to !== 'home') {
+          this.runSubPageDuringTransition = true
+          this.sceneLayout.updateSubPage(to, this.domRefs.dynamicLayoutContainer, this.asciiRenderer)
+
+          const elements = this.sceneLayout.getSubPageElements()
+          const texts = this.sceneLayout.getSubPageTexts()
+          const badgeContainer = this.sceneLayout.getBadgeContainer()
+          const socialBadgeContainer = this.sceneLayout.getSocialBadgeContainer()
+          if (badgeContainer) badgeContainer.style.opacity = '0'
+          if (socialBadgeContainer) socialBadgeContainer.style.opacity = '0'
+
+          await Promise.all([
+            TextAnimator.materialize(elements, texts, 1.0),
+            this.asciiRenderer.animateAsciiMaterialize(1.0),
+            backBtn ? TextAnimator.materialize([backBtn], ['[ Back ]'], 0.8) : Promise.resolve(),
+          ])
+          if (badgeContainer) gsap.to(badgeContainer, { opacity: 1, duration: 0.8, ease: 'power3.out' })
+          if (socialBadgeContainer) gsap.to(socialBadgeContainer, { opacity: 1, duration: 0.8, ease: 'power3.out' })
+          this.runSubPageDuringTransition = false
+        }
+      } else if (to === 'home') {
+        // 1. Dissolve the current subpage.
+        this.runSubPageDuringTransition = true
+        const elements = this.sceneLayout.getSubPageElements()
+        const badgeContainer = this.sceneLayout.getBadgeContainer()
+        const socialBadgeContainer = this.sceneLayout.getSocialBadgeContainer()
+        await Promise.all([
+          TextAnimator.dissolve(elements, 1.0),
+          this.asciiRenderer.animateAsciiDissolve(1.0),
+          backBtn ? TextAnimator.dissolve([backBtn], 0.8) : Promise.resolve(),
+          badgeContainer ? gsap.to(badgeContainer, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
+          socialBadgeContainer ? gsap.to(socialBadgeContainer, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
+        ])
+        this.runSubPageDuringTransition = false
+        this.sceneLayout.clearSubPage()
+        this.asciiRenderer.clearAsciiPool()
+
+        // 2. Move the camera back to home.
+        await this.cameraManager.transitionTo('home', 1.2)
+        this.currentPage = 'home'
+
+        // 3. Materialize home text, ASCII, and navigation.
+        if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'flex'
+        this.runHomeDuringTransition = true
+        await Promise.all([
+          this.sceneLayout.animateHomeMaterialize(1.0),
+          this.asciiRenderer.animateAsciiMaterialize(1.0),
+          TextAnimator.materialize(navSpans, navTexts, 0.8),
+        ])
+        this.runHomeDuringTransition = false
+      } else {
+        // Transition between subpages.
+        this.runSubPageDuringTransition = true
+        const elementsOld = this.sceneLayout.getSubPageElements()
+        const badgeContainerOld = this.sceneLayout.getBadgeContainer()
+        const socialBadgeContainerOld = this.sceneLayout.getSocialBadgeContainer()
+        await Promise.all([
+          TextAnimator.dissolve(elementsOld, 1.0),
+          this.asciiRenderer.animateAsciiDissolve(1.0),
+          badgeContainerOld ? gsap.to(badgeContainerOld, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
+          socialBadgeContainerOld ? gsap.to(socialBadgeContainerOld, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
+        ])
+        this.runSubPageDuringTransition = false
+        this.sceneLayout.clearSubPage()
+        this.asciiRenderer.clearAsciiPool()
+
+        await this.cameraManager.transitionTo(to, 1.2)
+        this.currentPage = to
+
         this.runSubPageDuringTransition = true
         this.sceneLayout.updateSubPage(to, this.domRefs.dynamicLayoutContainer, this.asciiRenderer)
 
-        const elements = this.sceneLayout.getSubPageElements()
-        const texts = this.sceneLayout.getSubPageTexts()
-        const badgeContainer = this.sceneLayout.getBadgeContainer()
-        const socialBadgeContainer = this.sceneLayout.getSocialBadgeContainer()
-        if (badgeContainer) badgeContainer.style.opacity = '0'
-        if (socialBadgeContainer) socialBadgeContainer.style.opacity = '0'
+        const elementsNew = this.sceneLayout.getSubPageElements()
+        const textsNew = this.sceneLayout.getSubPageTexts()
+        const badgeContainerNew = this.sceneLayout.getBadgeContainer()
+        const socialBadgeContainerNew = this.sceneLayout.getSocialBadgeContainer()
+        if (badgeContainerNew) badgeContainerNew.style.opacity = '0'
+        if (socialBadgeContainerNew) socialBadgeContainerNew.style.opacity = '0'
 
         await Promise.all([
-          TextAnimator.materialize(elements, texts, 1.0),
+          TextAnimator.materialize(elementsNew, textsNew, 1.0),
           this.asciiRenderer.animateAsciiMaterialize(1.0),
-          backBtn ? TextAnimator.materialize([backBtn], ['[ Back ]'], 0.8) : Promise.resolve(),
         ])
-        if (badgeContainer) gsap.to(badgeContainer, { opacity: 1, duration: 0.8, ease: 'power3.out' })
-        if (socialBadgeContainer) gsap.to(socialBadgeContainer, { opacity: 1, duration: 0.8, ease: 'power3.out' })
+        if (badgeContainerNew) gsap.to(badgeContainerNew, { opacity: 1, duration: 0.8, ease: 'power3.out' })
+        if (socialBadgeContainerNew) gsap.to(socialBadgeContainerNew, { opacity: 1, duration: 0.8, ease: 'power3.out' })
         this.runSubPageDuringTransition = false
       }
-    } else if (to === 'home') {
-      // 1. Dissolve the current subpage.
-      this.runSubPageDuringTransition = true
-      const elements = this.sceneLayout.getSubPageElements()
-      const badgeContainer = this.sceneLayout.getBadgeContainer()
-      const socialBadgeContainer = this.sceneLayout.getSocialBadgeContainer()
-      await Promise.all([
-        TextAnimator.dissolve(elements, 1.0),
-        this.asciiRenderer.animateAsciiDissolve(1.0),
-        backBtn ? TextAnimator.dissolve([backBtn], 0.8) : Promise.resolve(),
-        badgeContainer ? gsap.to(badgeContainer, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
-        socialBadgeContainer ? gsap.to(socialBadgeContainer, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
-      ])
-      this.runSubPageDuringTransition = false
-      this.sceneLayout.clearSubPage()
-      this.asciiRenderer.clearAsciiPool()
-
-      // 2. Move the camera back to home.
-      await this.cameraManager.transitionTo('home', 1.2)
-      this.currentPage = 'home'
-
-      // 3. Materialize home text, ASCII, and navigation.
-      if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'flex'
-      this.runHomeDuringTransition = true
-      await Promise.all([
-        this.sceneLayout.animateHomeMaterialize(1.0),
-        this.asciiRenderer.animateAsciiMaterialize(1.0),
-        TextAnimator.materialize(navSpans, navTexts, 0.8),
-      ])
+    } catch (error) {
+      console.error('Page transition failed', error)
+    } finally {
       this.runHomeDuringTransition = false
-    } else {
-      // Transition between subpages.
-      this.runSubPageDuringTransition = true
-      const elementsOld = this.sceneLayout.getSubPageElements()
-      const badgeContainerOld = this.sceneLayout.getBadgeContainer()
-      const socialBadgeContainerOld = this.sceneLayout.getSocialBadgeContainer()
-      await Promise.all([
-        TextAnimator.dissolve(elementsOld, 1.0),
-        this.asciiRenderer.animateAsciiDissolve(1.0),
-        badgeContainerOld ? gsap.to(badgeContainerOld, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
-        socialBadgeContainerOld ? gsap.to(socialBadgeContainerOld, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
-      ])
       this.runSubPageDuringTransition = false
-      this.sceneLayout.clearSubPage()
-      this.asciiRenderer.clearAsciiPool()
+      isAppTransitioning.value = false
 
-      await this.cameraManager.transitionTo(to, 1.2)
-      this.currentPage = to
+      const nextPage = this.pendingPage ?? activePage.value
+      this.pendingPage = null
 
-      this.runSubPageDuringTransition = true
-      this.sceneLayout.updateSubPage(to, this.domRefs.dynamicLayoutContainer, this.asciiRenderer)
-
-      const elementsNew = this.sceneLayout.getSubPageElements()
-      const textsNew = this.sceneLayout.getSubPageTexts()
-      const badgeContainerNew = this.sceneLayout.getBadgeContainer()
-      const socialBadgeContainerNew = this.sceneLayout.getSocialBadgeContainer()
-      if (badgeContainerNew) badgeContainerNew.style.opacity = '0'
-      if (socialBadgeContainerNew) socialBadgeContainerNew.style.opacity = '0'
-
-      await Promise.all([
-        TextAnimator.materialize(elementsNew, textsNew, 1.0),
-        this.asciiRenderer.animateAsciiMaterialize(1.0),
-      ])
-      if (badgeContainerNew) gsap.to(badgeContainerNew, { opacity: 1, duration: 0.8, ease: 'power3.out' })
-      if (socialBadgeContainerNew) gsap.to(socialBadgeContainerNew, { opacity: 1, duration: 0.8, ease: 'power3.out' })
-      this.runSubPageDuringTransition = false
+      if (!this.isMobileMode && nextPage !== this.currentPage) {
+        void this.handlePageTransition(this.currentPage, nextPage)
+      }
     }
-
-    isAppTransitioning.value = false
   }
 
   private animate = () => {
