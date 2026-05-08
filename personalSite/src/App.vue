@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import ThreeScene from './components/ThreeScene.vue'
+import { RouterView } from 'vue-router'
 </script>
 
 <template>
-  <ThreeScene />
+  <RouterView />
 </template>
 
 <style>

@@ -1,25 +1,3 @@
-/* Removed all original base styles to prevent overriding Three.js full-screen Layout */
-@import './base.css';
-
-@font-face {
-  font-family: 'BDStreetSign';
-  src: url('./BDStreetSignSans-RaisedExtremeInktrap.otf') format('opentype');
-  font-weight: normal;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: 'Arame';
-  src: url('./Arame-Mono.ttf') format('truetype');
-  font-weight: normal;
-  font-style: normal;
-}
-@font-face {
-  font-family: 'DinkieBitmap 9px';
-  src: url('./DinkieBitmap 9px.ttf') format('truetype');
-  font-weight: normal;
-  font-style: normal;
-}
 body, html {
   margin: 0;
   padding: 0;
