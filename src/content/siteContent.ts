@@ -50,6 +50,10 @@ export const SITE_CONTENT: Record<Exclude<PageName, 'home'>, SubPageContent> = {
       '║                                                                                                              ║',
       '║                                                                                                              ║',
       '║                                                                                                              ║',
+      '║  > Credits:                                                                                                  ║',
+      '║    ASCII Dynamic layout is from Pretext demo: variable-typographic-ascii,                                    ║',
+      '║    And the 3D model is from sketchfab/@Robduc.                                                               ║',
+      '║                                                                                                              ║',
       '╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════╝',
     ],
     badges: [
