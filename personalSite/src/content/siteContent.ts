@@ -5,12 +5,18 @@ export interface SocialBadge {
   action: { type: 'link'; url: string } | { type: 'copy'; text: string }
 }
 
+export interface LinkBadgeGroup {
+  afterLineIndex: number
+  badges: SocialBadge[]
+}
+
 export interface SubPageContent {
   lines: string[]
   badges?: string[]
   badgeAnchorLineIndex?: number
   socialBadges?: SocialBadge[]
   socialBadgeAnchorLineIndex?: number
+  linkBadgeGroups?: LinkBadgeGroup[]
   /** If true, content will be rendered in a scrollable container */
   scrollable?: boolean
 }
@@ -184,6 +190,27 @@ export const SITE_CONTENT: Record<Exclude<PageName, 'home'>, SubPageContent> = {
       // '|',
       // '      Tech: Python · FastAPI · OpenAI · GitHub API',
       // '      Status: ██████████░░░░░░░░░░ 50%',
+    ],
+    linkBadgeGroups: [
+      {
+        afterLineIndex: 23,
+        badges: [
+          { img: 'https://img.shields.io/badge/Live-zeno.is--a.dev-2ea44f?logo=vercel&logoColor=white', action: { type: 'link', url: 'https://zeno.is-a.dev' } },
+          { img: 'https://img.shields.io/badge/GitHub-zenosite-181717?logo=github&logoColor=white', action: { type: 'link', url: 'https://github.com/zenojor/zenosite' } },
+        ],
+      },
+      {
+        afterLineIndex: 44,
+        badges: [
+          { img: 'https://img.shields.io/badge/WeChat-07C160?logo=wechat&logoColor=white', action: { type: 'link', url: 'https://github.com/zenojor?tab=repositories&q=iceberg' } },
+        ],
+      },
+      {
+        afterLineIndex: 63,
+        badges: [
+          { img: 'https://img.shields.io/badge/GitHub-Mini_React-181717?logo=github&logoColor=white', action: { type: 'link', url: 'https://github.com/zenojor?tab=repositories&q=mini-react' } },
+        ],
+      },
     ],
     scrollable: true,
   },
