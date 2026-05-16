@@ -195,14 +195,14 @@ export const SITE_CONTENT: Record<Exclude<PageName, 'home'>, SubPageContent> = {
       {
         afterLineIndex: 23,
         badges: [
-          { img: 'https://img.shields.io/badge/Live-zeno.is--a.dev-2ea44f?logo=vercel&logoColor=white', action: { type: 'link', url: 'https://zeno.is-a.dev' } },
+          { img: 'https://img.shields.io/badge/Live-zeno.is--a.dev-2ea44f', action: { type: 'link', url: 'https://zeno.is-a.dev' } },
           { img: 'https://img.shields.io/badge/GitHub-zenosite-181717?logo=github&logoColor=white', action: { type: 'link', url: 'https://github.com/zenojor/zenosite' } },
         ],
       },
       {
         afterLineIndex: 44,
         badges: [
-          { img: 'https://img.shields.io/badge/WeChat-07C160?logo=wechat&logoColor=white', action: { type: 'link', url: 'https://github.com/zenojor?tab=repositories&q=iceberg' } },
+          { img: 'https://img.shields.io/static/v1?label=%E5%B0%8F%E7%A8%8B%E5%BA%8F&message=%E5%9C%B0%E7%94%B7%E7%9A%84%E5%86%B0%E5%B1%B1%E5%9B%BE%E7%94%9F%E6%88%90%E5%99%A8&color=555555&labelColor=07C160&logo=wechat&logoColor=white', action: { type: 'copy', text: '地男的冰山图生成器' } },
         ],
       },
       {
