@@ -5,12 +5,18 @@ export interface SocialBadge {
   action: { type: 'link'; url: string } | { type: 'copy'; text: string }
 }
 
+export interface LinkBadgeGroup {
+  afterLineIndex: number
+  badges: SocialBadge[]
+}
+
 export interface SubPageContent {
   lines: string[]
   badges?: string[]
   badgeAnchorLineIndex?: number
   socialBadges?: SocialBadge[]
   socialBadgeAnchorLineIndex?: number
+  linkBadgeGroups?: LinkBadgeGroup[]
   /** If true, content will be rendered in a scrollable container */
   scrollable?: boolean
 }
@@ -118,6 +124,46 @@ export const SITE_CONTENT: Record<Exclude<PageName, 'home'>, SubPageContent> = {
       ' ',
       '      Tech: Three.js · Vue 3 · Vue Router · TypeScript · GSAP',
       '      Status: ████████████████████ 100%',
+      ' ',
+      ' ',
+      '  02  Iceberg Charts',
+      ' ',
+      '      A WeChat Mini Program and cloud-development tool',
+      '      for iceberg chart editing, long-image export,',
+      '      shared voting rooms, proposal pools, and a curated',
+      '      public plaza.',
+      ' ',
+      '      Built the mini program client, including the local',
+      '      editor, room entry flow, voting room, and gallery.',
+      '      Implemented Canvas-based long-image export with',
+      '      layers, notes, themes, preview mode, and image saving.',
+      ' ',
+      '      Designed room creation, invite-code joining, member',
+      '      identity checks, owner permissions, expiration cleanup,',
+      '      voting, proposal adoption, search, admin actions,',
+      '      sharing, content safety checks, and basic rate limiting.',
+      ' ',
+      '      Tech: WeChat Mini Program · Cloud Functions · Canvas',
+      '      Status: ██████████████████░░ 90%',
+      ' ',
+      ' ',
+      '  03  Mini React',
+      ' ',
+      '      A lightweight front-end framework based on React core',
+      '      ideas, covering Virtual DOM, Fiber scheduling, Hooks,',
+      '      and a simplified Diff/reconciliation flow.',
+      ' ',
+      '      Built an interruptible render pipeline with Fiber Tree',
+      '      work units and requestIdleCallback to simulate time',
+      '      slicing. Separated render and commit phases, then used',
+      '      effectTag to manage placement, update, and deletion.',
+      ' ',
+      '      Implemented alternate Fiber reconciliation, function',
+      '      components, simplified useState, update queues, DOM',
+      '      property updates, and event binding/unbinding.',
+      ' ',
+      '      Tech: JavaScript · Virtual DOM · Fiber · Hooks · DOM',
+      '      Status: ████████████████░░░░ 80%',
       // '|',
       // '|',
       // '  02  Real-Time Chat Application',
@@ -144,6 +190,27 @@ export const SITE_CONTENT: Record<Exclude<PageName, 'home'>, SubPageContent> = {
       // '|',
       // '      Tech: Python · FastAPI · OpenAI · GitHub API',
       // '      Status: ██████████░░░░░░░░░░ 50%',
+    ],
+    linkBadgeGroups: [
+      {
+        afterLineIndex: 23,
+        badges: [
+          { img: 'https://img.shields.io/badge/Live-zeno.is--a.dev-2ea44f', action: { type: 'link', url: 'https://zeno.is-a.dev' } },
+          { img: 'https://img.shields.io/badge/GitHub-zenosite-181717?logo=github&logoColor=white', action: { type: 'link', url: 'https://github.com/zenojor/zenosite' } },
+        ],
+      },
+      {
+        afterLineIndex: 44,
+        badges: [
+          { img: 'https://img.shields.io/static/v1?label=%E5%B0%8F%E7%A8%8B%E5%BA%8F&message=%E5%9C%B0%E7%94%B7%E7%9A%84%E5%86%B0%E5%B1%B1%E5%9B%BE%E7%94%9F%E6%88%90%E5%99%A8&color=555555&labelColor=07C160&logo=wechat&logoColor=white', action: { type: 'copy', text: '地男的冰山图生成器' } },
+        ],
+      },
+      {
+        afterLineIndex: 63,
+        badges: [
+          { img: 'https://img.shields.io/badge/GitHub-Mini_React-181717?logo=github&logoColor=white', action: { type: 'link', url: 'https://github.com/zenojor?tab=repositories&q=mini-react' } },
+        ],
+      },
     ],
     scrollable: true,
   },

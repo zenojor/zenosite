@@ -50,6 +50,7 @@ export class SceneLayout {
   // ========== Badges ==========
   private badgeContainer: HTMLDivElement | null = null
   private socialBadgeContainer: HTMLDivElement | null = null
+  private linkBadgeContainers: HTMLDivElement[] = []
   private readonly copyToast = new CopyToast()
 
   /**
@@ -572,6 +573,67 @@ export class SceneLayout {
       el.style.top = ''
       el.style.width = 'max-content'
     }
+
+    this.updateScrollableLinkBadges(content, parent, lineHeight, pageConfig.textAlign)
+  }
+
+  private updateScrollableLinkBadges(
+    content: SubPageContent,
+    parent: HTMLDivElement,
+    lineHeight: number,
+    textAlign: 'left' | 'right',
+  ) {
+    const groups = content.linkBadgeGroups ?? []
+
+    while (this.linkBadgeContainers.length < groups.length) {
+      const container = document.createElement('div')
+      container.className = 'subpage-link-badges'
+      container.style.position = 'relative'
+      container.style.display = 'flex'
+      container.style.flexWrap = 'wrap'
+      container.style.gap = '4px'
+      container.style.alignItems = 'center'
+      container.style.pointerEvents = 'auto'
+      container.style.marginTop = '6px'
+      container.style.marginBottom = `${Math.max(8, lineHeight * 0.9)}px`
+      this.linkBadgeContainers.push(container)
+    }
+
+    while (this.linkBadgeContainers.length > groups.length) {
+      const container = this.linkBadgeContainers.pop()!
+      container.remove()
+    }
+
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i]!
+      const container = this.linkBadgeContainers[i]!
+      const signature = JSON.stringify(group.badges)
+
+      if (container.dataset.signature !== signature) {
+        container.innerHTML = ''
+        container.dataset.signature = signature
+
+        for (const badge of group.badges) {
+          container.appendChild(createSocialBadgeLink(badge, lineHeight, (text) => {
+            this.copyToast.show(text)
+          }))
+        }
+      }
+
+      container.style.alignSelf = textAlign === 'left' ? 'flex-start' : 'flex-end'
+      setBadgeImageHeights(container, lineHeight)
+
+      const anchorLine = this.subPageLinesPool[group.afterLineIndex]
+      if (!anchorLine) {
+        container.remove()
+        continue
+      }
+
+      const nextSibling = anchorLine.nextSibling
+      if (nextSibling !== container) {
+        parent.insertBefore(container, nextSibling)
+      }
+    }
   }
 
   /** 获取 badge 容器元素，用于动画。 */
@@ -611,6 +673,22 @@ export class SceneLayout {
           height: visibleBottom - visibleTop,
         })
       }
+
+      for (const container of this.linkBadgeContainers) {
+        const domRect = container.getBoundingClientRect()
+        const visibleTop = Math.max(domRect.top, containerRect.top)
+        const visibleBottom = Math.min(domRect.bottom, containerRect.bottom)
+
+        if (visibleBottom <= visibleTop) continue
+
+        rects.push({
+          x: domRect.left,
+          y: visibleTop,
+          width: domRect.width,
+          height: visibleBottom - visibleTop,
+        })
+      }
+
       return rects
     }
 
@@ -694,6 +772,11 @@ export class SceneLayout {
       this.socialBadgeContainer.remove()
       this.socialBadgeContainer = null
     }
+
+    for (const container of this.linkBadgeContainers) {
+      container.remove()
+    }
+    this.linkBadgeContainers = []
 
     this.copyToast.dispose()
   }
