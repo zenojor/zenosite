@@ -234,7 +234,7 @@ export class SceneLayout {
       el.style.position = 'absolute'
       el.style.font = this.FONT
       el.style.lineHeight = `${lineHeight}px`
-      el.style.color = 'rgba(0, 0, 0, 0.65)'
+      el.style.color = 'var(--text-muted-color)'
       el.style.letterSpacing = '1px'
       el.style.pointerEvents = 'none'
       el.style.whiteSpace = 'pre'
@@ -324,7 +324,7 @@ export class SceneLayout {
       const el = document.createElement('div')
       el.className = 'dynamic-line subpage-line'
       el.style.position = 'absolute'
-      el.style.color = 'rgba(0, 0, 0, 0.65)'
+      el.style.color = 'var(--text-muted-color)'
       el.style.pointerEvents = 'none'
       el.style.whiteSpace = 'pre'
       el.style.textAlign = 'right'
@@ -479,15 +479,15 @@ export class SceneLayout {
           background: transparent;
         }
         .subpage-scroll-container::-webkit-scrollbar-thumb {
-          background: rgba(0, 0, 0, 0.15);
+          background: var(--scrollbar-color);
           border-radius: 2px;
         }
         .subpage-scroll-container::-webkit-scrollbar-thumb:hover {
-          background: rgba(0, 0, 0, 0.3);
+          background: var(--scrollbar-hover-color);
         }
         .subpage-scroll-container {
           scrollbar-width: thin;
-          scrollbar-color: rgba(0,0,0,0.15) transparent;
+          scrollbar-color: var(--scrollbar-color) transparent;
         }
       `
       document.head.appendChild(style)
@@ -544,7 +544,7 @@ export class SceneLayout {
       el.className = 'dynamic-line subpage-line'
       el.style.position = 'relative'
       el.style.display = 'block'
-      el.style.color = 'rgba(0, 0, 0, 0.65)'
+      el.style.color = 'var(--text-muted-color)'
       el.style.pointerEvents = 'none'
       el.style.whiteSpace = 'pre'
       parent.appendChild(el)

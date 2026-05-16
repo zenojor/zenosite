@@ -2,9 +2,10 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js'
 import modelUrl from '@/assets/models/cloud-from-world-of-final-fantasy.glb?url'
+import { getThemeMirrorTint, getThemeSurfaceColor, type ThemeMode } from '@/state/themeState'
 
 // --- 参数配置区 ---
-const MIRROR_OPACITY = 0.4
+const REFLECTION_OPACITY = 0.4
 const SHOW_MARKER = false
 
 export class World {
@@ -13,6 +14,7 @@ export class World {
   originMarker: THREE.Mesh
   model: THREE.Group | null = null
   mixer: THREE.AnimationMixer | null = null
+  private sceneSurfaceColor = getThemeSurfaceColor()
 
   constructor(scene: THREE.Scene) {
     this.scene = scene
@@ -33,14 +35,20 @@ export class World {
       name: 'ReflectorShaderWithAlpha',
       uniforms: {
         ...reflectorShader.uniforms,
-        opacity: { value: MIRROR_OPACITY },
+        reflectionOpacity: { value: REFLECTION_OPACITY },
+        surfaceColor: { value: new THREE.Color(this.sceneSurfaceColor) },
       },
       vertexShader: reflectorShader.vertexShader,
       fragmentShader: `
-        uniform float opacity;
+        uniform float reflectionOpacity;
+        uniform vec3 surfaceColor;
         ${reflectorShader.fragmentShader.replace(
           'gl_FragColor = vec4( blendOverlay( base.rgb, color ), 1.0 );',
-          'gl_FragColor = vec4( blendOverlay( base.rgb, color ), opacity );',
+          `
+            vec3 reflectedColor = blendOverlay( base.rgb, color );
+            float reflectionMask = smoothstep( 0.02, 0.28, distance( base.rgb, surfaceColor ) );
+            gl_FragColor = vec4( reflectedColor, reflectionMask * reflectionOpacity );
+          `,
         )}
       `,
     }
@@ -49,12 +57,14 @@ export class World {
       clipBias: 0.003,
       textureWidth: window.innerWidth * window.devicePixelRatio,
       textureHeight: window.innerHeight * window.devicePixelRatio,
-      color: 0xcccccc,
+      color: getThemeMirrorTint(),
       shader: customShader,
     })
 
     // 必须开启此选项，才能让自定义透明度生效。
-    ;(this.groundMirror.material as THREE.Material).transparent = true
+    const groundMirrorMaterial = this.groundMirror.material as THREE.Material
+    groundMirrorMaterial.transparent = true
+    groundMirrorMaterial.depthWrite = false
 
     this.groundMirror.rotateX(-Math.PI / 2)
     this.groundMirror.position.y = -2.5 // 初始估算高度，会在模型加载后修正。
@@ -63,6 +73,7 @@ export class World {
     // 补丁：让真实场景透明以透出 ASCII，同时让镜面在渲染倒影时仍认为背景是纯白色。
     // 这样镜面边界会自然隐藏，不会变成突兀的灰色平面。
     const originalOnBeforeRender = this.groundMirror.onBeforeRender.bind(this.groundMirror)
+    const world = this
     this.groundMirror.onBeforeRender = function (
       renderer: THREE.WebGLRenderer,
       scene: THREE.Scene,
@@ -72,7 +83,7 @@ export class World {
       group: THREE.Group,
     ) {
       const prevBg = scene.background
-      scene.background = new THREE.Color(0xffffff)
+      scene.background = new THREE.Color(world.sceneSurfaceColor)
       originalOnBeforeRender(renderer, scene, camera, geometry, material, group)
       scene.background = prevBg
     }
@@ -147,6 +158,17 @@ export class World {
       window.innerWidth * window.devicePixelRatio,
       window.innerHeight * window.devicePixelRatio,
     )
+  }
+
+  setTheme(mode: ThemeMode) {
+    this.sceneSurfaceColor = getThemeSurfaceColor(mode)
+    const material = this.groundMirror.material as THREE.ShaderMaterial
+    if (material.uniforms.color?.value instanceof THREE.Color) {
+      material.uniforms.color.value.set(getThemeMirrorTint(mode))
+    }
+    if (material.uniforms.surfaceColor?.value instanceof THREE.Color) {
+      material.uniforms.surfaceColor.value.set(this.sceneSurfaceColor)
+    }
   }
 
   dispose() {

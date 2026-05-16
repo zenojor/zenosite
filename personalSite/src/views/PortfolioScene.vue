@@ -5,6 +5,7 @@ import { SceneRuntime } from '@/scene/SceneRuntime'
 import { BREAKPOINTS } from '@/config/breakpoints'
 import { getPageFromRoute, PAGE_PATHS, type PageName } from '@/router/pages'
 import { activePage, isAppTransitioning, setPage } from '@/state/navigationState'
+import { isNightMode, toggleThemeMode } from '@/state/themeState'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const asciiRef = ref<HTMLDivElement | null>(null)
@@ -98,6 +99,15 @@ onBeforeUnmount(() => {
     <div class="dynamic-layout" ref="dynamicLayoutRef"></div>
 
     <button
+      class="theme-toggle"
+      type="button"
+      @click="toggleThemeMode"
+      :aria-label="isNightMode ? 'Switch to light mode' : 'Switch to night mode'"
+    >
+      {{ isNightMode ? '☼' : '☾' }}
+    </button>
+
+    <button
       v-if="isMobile"
       class="wechat-badge"
       type="button"
@@ -138,7 +148,8 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 0;
   left: 0;
-  background-color: #ffffff;
+  background-color: var(--surface-color);
+  transition: background-color 0.35s ease;
 }
 canvas {
   display: block;
@@ -178,7 +189,7 @@ canvas {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #595959;
+  color: var(--text-color);
   font-family: 'Courier New', Courier, monospace;
   font-size: 15px;
   letter-spacing: 0.08em;
@@ -195,13 +206,40 @@ canvas {
   white-space: nowrap;
 }
 
+.theme-toggle {
+  position: absolute;
+  left: 38px;
+  bottom: max(34px, env(safe-area-inset-bottom, 0px) + 24px);
+  z-index: 120;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-color);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: opacity 0.2s ease, color 0.35s ease, border-color 0.2s ease;
+}
+
+.theme-toggle:hover {
+  opacity: 0.62;
+  border-color: var(--text-subtle-color);
+}
+
 /* 全局 UI 统一风格：参考主标题颜色 #595959，避免纯黑 #111 过重。 */
 .back-btn, .nav-container {
   font-family: 'Courier New', Courier, monospace;
   font-size: 16px;
-  color: #595959;
+  color: var(--text-color);
   letter-spacing: 1px;
   user-select: none;
+  transition: color 0.35s ease, opacity 0.2s ease;
 }
 
 .back-btn {
@@ -243,6 +281,11 @@ canvas {
   .nav-container,
   .dynamic-layout {
     display: none !important;
+  }
+
+  .theme-toggle {
+    left: 20px;
+    bottom: max(22px, env(safe-area-inset-bottom, 0px) + 18px);
   }
 }
 </style>

@@ -11,10 +11,13 @@
 ASCII动态背景来自Pretext仓库的官方demo: variable-typographic-ascii
 3D模型来自sketchfab/@Robduc.
 
+目前网站已经部署到了[zeno.is-a.dev](http://zeno.is-a.dev)
+
 ## 预览
 
 ![截图 1](./preview1.png)
 ![截图 2](./preview2.png)
+你也可以点击[这里](http://zeno.is-a.dev)直接访问预览。
 
 ## 技术栈
 

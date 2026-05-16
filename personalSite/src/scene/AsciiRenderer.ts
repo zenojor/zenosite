@@ -321,7 +321,7 @@ export class AsciiRenderer {
       el.style.fontSize = '18px'
       el.style.lineHeight = '18px'
       el.style.letterSpacing = '1px'
-      el.style.color = 'rgba(0, 0, 0, 0.65)'
+      el.style.color = 'var(--text-muted-color)'
       el.style.pointerEvents = 'none'
       el.style.whiteSpace = 'pre'
       asciiContainer.appendChild(el)
@@ -505,7 +505,7 @@ export class AsciiRenderer {
       el.style.fontSize = '18px'
       el.style.lineHeight = '18px'
       el.style.letterSpacing = '1px'
-      el.style.color = 'rgba(0, 0, 0, 0.65)'
+      el.style.color = 'var(--text-muted-color)'
       el.style.pointerEvents = 'none'
       el.style.whiteSpace = 'pre'
       asciiContainer.appendChild(el)
