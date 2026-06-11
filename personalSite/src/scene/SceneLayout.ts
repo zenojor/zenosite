@@ -7,6 +7,7 @@ import type { PageName } from '@/router/pages'
 import type { AsciiRenderer } from './AsciiRenderer'
 import { createBadgeImage, createSocialBadgeLink, setBadgeImageHeights } from './dom/badgeElements'
 import { CopyToast } from './dom/copyToast'
+import { isSubPageObstacleLine } from './subPageObstacles'
 
 export class SceneLayout {
   // ========== Home Dynamic Layout ==========
@@ -658,7 +659,7 @@ export class SceneLayout {
         const el = this.subPageLinesPool[i]!
         const lineText = this.currentSubPageContent.lines[i]!
 
-        if (lineText.trim() === '閳?' || lineText.trim() === '') continue
+        if (!isSubPageObstacleLine(lineText)) continue
 
         const domRect = el.getBoundingClientRect()
         const visibleTop = Math.max(domRect.top, containerRect.top)
@@ -698,7 +699,7 @@ export class SceneLayout {
       const lineText = this.currentSubPageContent.lines[i]!
 
       // Skip empty lines to reduce work and allow the background to show through.
-      if (lineText.trim() === '鈺?' || lineText.trim() === '') continue
+      if (!isSubPageObstacleLine(lineText)) continue
 
       const domRect = el.getBoundingClientRect()
 

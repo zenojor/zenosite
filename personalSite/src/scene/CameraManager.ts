@@ -2,6 +2,7 @@
 import gsap from 'gsap'
 import { CAMERA_CONFIG } from '@/config/camera'
 import type { PageName } from '@/router/pages'
+import { TransitionController } from './TransitionController'
 
 type CameraMode = 'orbit' | 'transitioning' | 'fixed'
 
@@ -31,8 +32,7 @@ export class CameraManager {
   // Fixed 模式：当前 lookAt 目标，用于平滑过渡。
   private currentLookAt = new THREE.Vector3(0, 0, 0)
 
-  // 活跃的 GSAP tween，用于取消动画。
-  private activeTweens: gsap.core.Tween[] = []
+  private transitionController = new TransitionController()
 
   // Bound event handlers
   private readonly onPointerDownBound: (e: PointerEvent) => void
@@ -83,8 +83,7 @@ export class CameraManager {
    * @returns Promise that resolves when the transition completes.
    */
   transitionTo(page: PageName, duration = 0.8): Promise<void> {
-    // 取消所有进行中的 tween。
-    this.killActiveTweens()
+    this.transitionController.cancel()
 
     if (page === 'home') {
       return this.transitionToOrbit(duration)
@@ -104,7 +103,15 @@ export class CameraManager {
     this.isDragging = false
     this.canvas.style.cursor = 'default'
 
-    return new Promise((resolve) => {
+    if (duration <= 0) {
+      this.camera.position.copy(view.position)
+      this.currentLookAt.copy(view.lookAt)
+      this.camera.lookAt(this.currentLookAt)
+      this.mode = 'fixed'
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve, reject) => {
       // Tween 相机位置。
       const posTween = gsap.to(this.camera.position, {
         x: view.position.x,
@@ -126,12 +133,11 @@ export class CameraManager {
         },
         onComplete: () => {
           this.mode = 'fixed'
-          this.activeTweens = []
-          resolve()
+          this.transitionController.complete()
         },
       })
 
-      this.activeTweens = [posTween, lookAtTween]
+      this.transitionController.track([posTween, lookAtTween], resolve, reject)
     })
   }
 
@@ -147,7 +153,17 @@ export class CameraManager {
       Math.sin(this.angle) * this.cameraDistance,
     )
 
-    return new Promise((resolve) => {
+    if (duration <= 0) {
+      this.camera.position.copy(targetPos)
+      this.currentLookAt.set(0, 0, 0)
+      this.camera.lookAt(this.currentLookAt)
+      this.mode = 'orbit'
+      this.velocity = CAMERA_CONFIG.orbit.defaultVelocity
+      this.canvas.style.cursor = 'grab'
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve, reject) => {
       const posTween = gsap.to(this.camera.position, {
         x: targetPos.x,
         y: targetPos.y,
@@ -169,20 +185,12 @@ export class CameraManager {
           this.mode = 'orbit'
           this.velocity = CAMERA_CONFIG.orbit.defaultVelocity
           this.canvas.style.cursor = 'grab'
-          this.activeTweens = []
-          resolve()
+          this.transitionController.complete()
         },
       })
 
-      this.activeTweens = [posTween, lookAtTween]
+      this.transitionController.track([posTween, lookAtTween], resolve, reject)
     })
-  }
-
-  private killActiveTweens() {
-    for (const tween of this.activeTweens) {
-      tween.kill()
-    }
-    this.activeTweens = []
   }
 
   /** 每帧更新。 */
@@ -220,7 +228,7 @@ export class CameraManager {
   }
 
   dispose() {
-    this.killActiveTweens()
+    this.transitionController.cancel()
     this.canvas.removeEventListener('pointerdown', this.onPointerDownBound)
     window.removeEventListener('pointermove', this.onPointerMoveBound)
     window.removeEventListener('pointerup', this.onPointerUpBound)

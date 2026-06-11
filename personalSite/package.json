@@ -8,7 +8,8 @@
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "build-only": "vite build",
-    "type-check": "vue-tsc --build"
+    "type-check": "vue-tsc --build",
+    "test": "node --test --experimental-strip-types src/scene/TransitionController.test.ts src/config/rendering.test.ts src/scene/subPageObstacles.test.ts"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.3",

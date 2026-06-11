@@ -5,6 +5,9 @@ export function createBadgeImage(src: string, lineHeight: number): HTMLImageElem
   img.src = src
   img.style.height = getBadgeHeight(lineHeight)
   img.style.display = 'block'
+  img.loading = 'lazy'
+  img.decoding = 'async'
+  img.referrerPolicy = 'no-referrer'
   img.draggable = false
   return img
 }
@@ -42,9 +45,11 @@ export function createSocialBadgeLink(
     const copyText = badge.action.text
     wrapper.addEventListener('click', (e) => {
       e.preventDefault()
-      navigator.clipboard.writeText(copyText).then(() => {
-        onCopy(copyText)
-      })
+      navigator.clipboard.writeText(copyText)
+        .then(() => {
+          onCopy(copyText)
+        })
+        .catch(() => {})
     })
   }
 

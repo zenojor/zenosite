@@ -11,7 +11,7 @@ const canvasRef = ref<HTMLCanvasElement | null>(null)
 const asciiRef = ref<HTMLDivElement | null>(null)
 const dynamicLayoutRef = ref<HTMLDivElement | null>(null)
 const navRef = ref<HTMLDivElement | null>(null)
-const backRef = ref<HTMLDivElement | null>(null)
+const backRef = ref<HTMLButtonElement | null>(null)
 const viewportWidth = ref(window.innerWidth)
 const wechatCopied = ref(false)
 const route = useRoute()
@@ -84,16 +84,18 @@ onBeforeUnmount(() => {
 <template>
   <div class="scene-container">
     <!-- Back Button -->
-    <div 
+    <button
       class="back-btn" 
       :class="{ 'is-disabled': isAppTransitioning }"
       ref="backRef"
+      type="button"
       @click="handleNav('home')"
       :aria-disabled="isAppTransitioning"
+      :disabled="isAppTransitioning"
       style="display: none;" 
     >
       [ Back ]
-    </div>
+    </button>
 
     <div class="ascii-overlay" ref="asciiRef"></div>
     <div class="dynamic-layout" ref="dynamicLayoutRef"></div>
@@ -117,6 +119,9 @@ onBeforeUnmount(() => {
       <img
         src="https://img.shields.io/badge/WeChat-07C160?logo=wechat&logoColor=white"
         alt="WeChat badge"
+        loading="lazy"
+        decoding="async"
+        referrerpolicy="no-referrer"
       />
       <span>{{ wechatCopied ? 'Copied: zenoknowda' : 'zenoknowda' }}</span>
     </button>
@@ -128,10 +133,10 @@ onBeforeUnmount(() => {
       ref="navRef"
       :aria-disabled="isAppTransitioning"
     >
-      <span @click="handleNav('about')">About</span>
-      <span @click="handleNav('experience')">Experience</span>
-      <span @click="handleNav('projects')">Projects</span>
-      <span @click="handleNav('contact')">Contact</span>
+      <button type="button" data-page-nav :disabled="isAppTransitioning" @click="handleNav('about')" :aria-current="activePage === 'about' ? 'page' : undefined">About</button>
+      <button type="button" data-page-nav :disabled="isAppTransitioning" @click="handleNav('experience')" :aria-current="activePage === 'experience' ? 'page' : undefined">Experience</button>
+      <button type="button" data-page-nav :disabled="isAppTransitioning" @click="handleNav('projects')" :aria-current="activePage === 'projects' ? 'page' : undefined">Projects</button>
+      <button type="button" data-page-nav :disabled="isAppTransitioning" @click="handleNav('contact')" :aria-current="activePage === 'contact' ? 'page' : undefined">Contact</button>
     </div>
 
     <canvas ref="canvasRef"></canvas>
@@ -247,6 +252,9 @@ canvas {
   top: 40px;
   left: 40px;
   z-index: 100;
+  padding: 0;
+  border: 0;
+  background: transparent;
   cursor: pointer;
   pointer-events: auto;
   white-space: pre;
@@ -264,12 +272,23 @@ canvas {
   z-index: 30;
   pointer-events: auto;
 }
-.nav-container span {
+.nav-container button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
   cursor: pointer;
   transition: opacity 0.2s ease;
 }
-.nav-container span:hover {
+.nav-container button:hover {
   opacity: 0.6;
+}
+.back-btn:disabled,
+.nav-container button:disabled {
+  color: inherit;
+  cursor: default;
 }
 .back-btn.is-disabled,
 .nav-container.is-disabled {

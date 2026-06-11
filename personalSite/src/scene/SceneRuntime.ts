@@ -7,17 +7,19 @@ import { AsciiRenderer } from './AsciiRenderer'
 import { SceneLayout } from './SceneLayout'
 import { TextAnimator } from './TextAnimator'
 import { ASCII_CONFIG } from '@/config/ascii'
+import { getRenderPixelRatio } from '@/config/rendering'
 import { isMobileViewport, responsive } from '@/config/breakpoints'
 import type { PageName } from '@/router/pages'
 import { activePage, setPage, isAppTransitioning } from '@/state/navigationState'
 import { getThemeSurfaceColor, themeMode } from '@/state/themeState'
+import { isTransitionCancelled } from './TransitionController'
 
 export interface SceneRuntimeRefs {
   canvas: HTMLCanvasElement
   asciiContainer: HTMLDivElement
   dynamicLayoutContainer: HTMLDivElement
   navContainer: HTMLDivElement | null
-  backButton: HTMLDivElement | null
+  backButton: HTMLElement | null
 }
 
 export class SceneRuntime {
@@ -52,7 +54,7 @@ export class SceneRuntime {
     this.renderer = new THREE.WebGLRenderer({ canvas: refs.canvas, antialias: true, alpha: true })
     this.renderer.setClearColor(getThemeSurfaceColor(), 0)
     this.renderer.setSize(window.innerWidth, window.innerHeight)
-    this.renderer.setPixelRatio(window.devicePixelRatio)
+    this.renderer.setPixelRatio(getRenderPixelRatio())
 
     this.clock = new THREE.Clock()
 
@@ -97,7 +99,7 @@ export class SceneRuntime {
       // If the route starts on a subpage, hide home nav and show Back.
       if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'none'
       if (this.domRefs.backButton) this.domRefs.backButton.style.display = 'block'
-      void this.cameraManager.transitionTo(activePage.value, 0)
+      void this.cameraManager.transitionTo(activePage.value, 0).catch(this.handleTransitionError)
     } else {
       if (this.domRefs.backButton) this.domRefs.backButton.style.display = 'none'
       if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'flex'
@@ -112,7 +114,7 @@ export class SceneRuntime {
     if (this.isMobileMode) {
       this.currentPage = 'home'
       if (this.cameraManager.getMode() !== 'orbit') {
-        void this.cameraManager.transitionTo('home', 0.6)
+        void this.cameraManager.transitionTo('home', 0.6).catch(this.handleTransitionError)
       }
       this.sceneLayout.clearAll()
       this.asciiRenderer.clearAsciiPool()
@@ -150,7 +152,7 @@ export class SceneRuntime {
 
     isAppTransitioning.value = true
 
-    const navSpans = Array.from(this.domRefs.navContainer?.querySelectorAll('span') || []) as unknown as HTMLDivElement[]
+    const navSpans = Array.from(this.domRefs.navContainer?.querySelectorAll('[data-page-nav]') || []) as HTMLElement[]
     const navTexts = ['About', 'Experience', 'Projects', 'Contact']
     const backBtn = this.domRefs.backButton
 
@@ -257,7 +259,7 @@ export class SceneRuntime {
         this.runSubPageDuringTransition = false
       }
     } catch (error) {
-      console.error('Page transition failed', error)
+      this.handleTransitionError(error)
     } finally {
       this.runHomeDuringTransition = false
       this.runSubPageDuringTransition = false
@@ -367,6 +369,7 @@ export class SceneRuntime {
 
   private onResize = () => {
     this.cameraManager.onResize()
+    this.renderer.setPixelRatio(getRenderPixelRatio())
     this.renderer.setSize(window.innerWidth, window.innerHeight)
     this.world.onResize()
     this.asciiRenderer.onResize()
@@ -382,8 +385,15 @@ export class SceneRuntime {
     if (this.stopThemeWatcher) this.stopThemeWatcher()
     window.removeEventListener('resize', this.onResize)
     this.cameraManager.dispose()
+    this.sceneLayout.clearAll()
+    this.world.dispose()
     this.asciiRenderer.dispose()
     this.renderer.dispose()
+  }
+
+  private handleTransitionError = (error: unknown) => {
+    if (isTransitionCancelled(error)) return
+    console.error('Page transition failed', error)
   }
 }
 
