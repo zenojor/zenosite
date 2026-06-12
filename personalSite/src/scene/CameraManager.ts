@@ -33,6 +33,10 @@ export class CameraManager {
   private currentLookAt = new THREE.Vector3(0, 0, 0)
 
   private transitionController = new TransitionController()
+  private readonly homeIntroStart = {
+    distanceMultiplier: 4.2,
+    heightMultiplier: 2.4,
+  }
 
   // Bound event handlers
   private readonly onPointerDownBound: (e: PointerEvent) => void
@@ -96,6 +100,86 @@ export class CameraManager {
       lookAt: new THREE.Vector3(viewDef.lookAt.x, viewDef.lookAt.y, viewDef.lookAt.z),
     }
     return this.transitionToFixed(view, duration)
+  }
+
+  prepareHomeIntro() {
+    this.transitionController.cancel()
+    this.mode = 'transitioning'
+    this.isDragging = false
+    this.velocity = 0
+    this.canvas.style.cursor = 'default'
+
+    const targetAngle = 0
+    this.angle = targetAngle
+    this.camera.fov = CAMERA_CONFIG.fov
+    this.camera.up.set(0, 1, 0)
+    this.camera.updateProjectionMatrix()
+    this.camera.position.set(
+      Math.cos(targetAngle) * this.cameraDistance * this.homeIntroStart.distanceMultiplier,
+      this.cameraHeight * this.homeIntroStart.heightMultiplier,
+      Math.sin(targetAngle) * this.cameraDistance * this.homeIntroStart.distanceMultiplier,
+    )
+    this.currentLookAt.set(0, 0, 0)
+    this.camera.lookAt(this.currentLookAt)
+  }
+
+  playHomeIntro(duration = 2.7): Promise<void> {
+    this.transitionController.cancel()
+    this.mode = 'transitioning'
+    this.isDragging = false
+    this.canvas.style.cursor = 'default'
+
+    const targetAngle = this.angle
+    const targetPos = new THREE.Vector3(
+      Math.cos(targetAngle) * this.cameraDistance,
+      this.cameraHeight,
+      Math.sin(targetAngle) * this.cameraDistance,
+    )
+
+    if (duration <= 0) {
+      this.camera.position.copy(targetPos)
+      this.camera.fov = CAMERA_CONFIG.fov
+      this.camera.updateProjectionMatrix()
+      this.currentLookAt.set(0, 0, 0)
+      this.camera.lookAt(this.currentLookAt)
+      this.mode = 'orbit'
+      this.velocity = CAMERA_CONFIG.orbit.defaultVelocity
+      this.canvas.style.cursor = 'grab'
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve, reject) => {
+      const state = { progress: 0 }
+      const startPos = this.camera.position.clone()
+      const introTween = gsap.to(state, {
+        progress: 1,
+        duration,
+        ease: 'expo.out',
+        onUpdate: () => {
+          const progress = state.progress
+
+          this.camera.position.lerpVectors(startPos, targetPos, progress)
+          this.currentLookAt.set(0, 0, 0)
+          this.camera.fov = CAMERA_CONFIG.fov
+          this.camera.up.set(0, 1, 0)
+          this.camera.updateProjectionMatrix()
+          this.camera.lookAt(this.currentLookAt)
+        },
+        onComplete: () => {
+          this.camera.position.copy(targetPos)
+          this.camera.fov = CAMERA_CONFIG.fov
+          this.camera.up.set(0, 1, 0)
+          this.camera.updateProjectionMatrix()
+          this.camera.lookAt(0, 0, 0)
+          this.mode = 'orbit'
+          this.velocity = CAMERA_CONFIG.orbit.defaultVelocity
+          this.canvas.style.cursor = 'grab'
+          this.transitionController.complete()
+        },
+      })
+
+      this.transitionController.track([introTween], resolve, reject)
+    })
   }
 
   private transitionToFixed(view: CameraViewDef, duration: number): Promise<void> {

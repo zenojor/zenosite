@@ -42,6 +42,8 @@ export class SceneRuntime {
   private stopWatcher: (() => void) | null = null
   private stopThemeWatcher: (() => void) | null = null
   private pendingPage: PageName | null = null
+  private entryTimers: number[] = []
+  private disposed = false
 
   private get isMobileMode() {
     return isMobileViewport()
@@ -106,8 +108,92 @@ export class SceneRuntime {
     }
 
     this.syncViewportMode()
+
+    const shouldPlayHomeEntry = activePage.value === 'home'
+    if (shouldPlayHomeEntry) {
+      this.prepareHomeEntry()
+    }
+
     window.addEventListener('resize', this.onResize)
     this.animate()
+
+    if (shouldPlayHomeEntry) {
+      void this.playHomeEntry()
+    }
+  }
+
+  private prepareHomeEntry() {
+    this.cameraManager.prepareHomeIntro()
+    this.sceneLayout.setHomeVisibility(0)
+    this.asciiRenderer.setAsciiVisibility(0)
+
+    for (const [index, item] of this.getNavItems().entries()) {
+      const text = this.getNavTexts()[index] ?? ''
+      item.textContent = ' '.repeat(text.length)
+    }
+  }
+
+  private async playHomeEntry() {
+    isAppTransitioning.value = true
+    this.runHomeDuringTransition = true
+
+    try {
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      const cameraDuration = reducedMotion ? 0 : 3.55
+      const materializeDuration = reducedMotion ? 0.01 : 1.35
+
+      await Promise.all([
+        this.world.ready,
+        this.wait(reducedMotion ? 0 : 120),
+      ])
+
+      if (this.disposed || activePage.value !== 'home') return
+
+      const navItems = this.getNavItems()
+      const navTexts = this.getNavTexts()
+      const cameraIntro = this.cameraManager.playHomeIntro(cameraDuration)
+      const textIntro = this.wait(reducedMotion ? 0 : 1150).then(() => {
+        if (this.disposed || activePage.value !== 'home') return Promise.resolve()
+
+        return Promise.all([
+          this.sceneLayout.animateHomeMaterialize(materializeDuration),
+          this.asciiRenderer.animateAsciiMaterialize(materializeDuration + 0.28),
+          TextAnimator.materialize(navItems, navTexts, materializeDuration + 0.1),
+        ]).then(() => undefined)
+      })
+
+      await Promise.all([cameraIntro, textIntro])
+    } catch (error) {
+      this.handleTransitionError(error)
+    } finally {
+      this.runHomeDuringTransition = false
+      isAppTransitioning.value = false
+
+      const nextPage = this.pendingPage ?? activePage.value
+      this.pendingPage = null
+
+      if (!this.disposed && !this.isMobileMode && nextPage !== this.currentPage) {
+        void this.handlePageTransition(this.currentPage, nextPage)
+      }
+    }
+  }
+
+  private getNavItems(): HTMLElement[] {
+    return Array.from(this.domRefs.navContainer?.querySelectorAll('[data-page-nav]') || []) as HTMLElement[]
+  }
+
+  private getNavTexts() {
+    return ['About', 'Experience', 'Projects', 'Contact']
+  }
+
+  private wait(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = window.setTimeout(() => {
+        this.entryTimers = this.entryTimers.filter((entryTimer) => entryTimer !== timer)
+        resolve()
+      }, ms)
+      this.entryTimers.push(timer)
+    })
   }
 
   private syncViewportMode() {
@@ -380,7 +466,12 @@ export class SceneRuntime {
   }
 
   dispose() {
+    this.disposed = true
     if (this.animationId !== null) cancelAnimationFrame(this.animationId)
+    for (const timer of this.entryTimers) {
+      window.clearTimeout(timer)
+    }
+    this.entryTimers = []
     if (this.stopWatcher) this.stopWatcher()
     if (this.stopThemeWatcher) this.stopThemeWatcher()
     window.removeEventListener('resize', this.onResize)

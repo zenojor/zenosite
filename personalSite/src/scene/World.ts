@@ -15,13 +15,18 @@ export class World {
   originMarker: THREE.Mesh
   model: THREE.Group | null = null
   mixer: THREE.AnimationMixer | null = null
+  readonly ready: Promise<void>
   private sceneSurfaceColor = getThemeSurfaceColor()
   private ambientLight: THREE.AmbientLight
   private dirLight: THREE.DirectionalLight
   private disposed = false
+  private resolveReady: (() => void) | null = null
 
   constructor(scene: THREE.Scene) {
     this.scene = scene
+    this.ready = new Promise((resolve) => {
+      this.resolveReady = resolve
+    })
 
     // Ambient Light and Directional Light
     this.ambientLight = new THREE.AmbientLight(0xffffff, 2)
@@ -110,6 +115,7 @@ export class World {
     loader.load(modelUrl, (gltf) => {
       if (this.disposed) {
         disposeObject3D(gltf.scene)
+        this.markReady()
         return
       }
 
@@ -152,7 +158,16 @@ export class World {
       }
 
       this.scene.add(this.model)
+      this.markReady()
+    }, undefined, (error) => {
+      console.error('Failed to load model', error)
+      this.markReady()
     })
+  }
+
+  private markReady() {
+    this.resolveReady?.()
+    this.resolveReady = null
   }
 
   /** 更新模型动画混合器。 */
