@@ -42,6 +42,7 @@ export class SceneRuntime {
   private stopWatcher: (() => void) | null = null
   private stopThemeWatcher: (() => void) | null = null
   private pendingPage: PageName | null = null
+  private hasPlayedInitialTextIntro = false
 
   private get isMobileMode() {
     return isMobileViewport()
@@ -106,8 +107,122 @@ export class SceneRuntime {
     }
 
     this.syncViewportMode()
+    this.playInitialTextIntro()
     window.addEventListener('resize', this.onResize)
     this.animate()
+  }
+
+  private playInitialTextIntro() {
+    if (this.hasPlayedInitialTextIntro) return
+    this.hasPlayedInitialTextIntro = true
+
+    if (this.isMobileMode) {
+      this.asciiRenderer.setAsciiVisibility(0)
+      void this.playInitialAsciiIntro(1.0).catch(this.handleTransitionError)
+      return
+    }
+
+    if (this.currentPage === 'home') {
+      void this.playInitialHomeIntro()
+      return
+    }
+
+    void this.playInitialSubPageIntro(this.currentPage as Exclude<PageName, 'home'>)
+  }
+
+  private async playInitialHomeIntro() {
+    isAppTransitioning.value = true
+    this.runHomeDuringTransition = true
+
+    const navSpans = this.getNavElements()
+    const navTexts = this.getNavTexts()
+
+    this.sceneLayout.setHomeVisibility(0)
+    this.asciiRenderer.setAsciiVisibility(0)
+    this.prepareTextMaterialize(navSpans, navTexts)
+
+    try {
+      await this.world.ready
+      await Promise.all([
+        this.sceneLayout.animateHomeMaterialize(1.0),
+        this.asciiRenderer.animateAsciiMaterialize(1.0),
+        TextAnimator.materialize(navSpans, navTexts, 0.8),
+      ])
+    } catch (error) {
+      this.handleTransitionError(error)
+    } finally {
+      this.runHomeDuringTransition = false
+      this.finishIntroTransition()
+    }
+  }
+
+  private async playInitialSubPageIntro(page: Exclude<PageName, 'home'>) {
+    isAppTransitioning.value = true
+    this.runSubPageDuringTransition = true
+
+    this.asciiRenderer.setAsciiVisibility(0)
+    this.sceneLayout.updateSubPage(page, this.domRefs.dynamicLayoutContainer, this.asciiRenderer)
+
+    const elements = this.sceneLayout.getSubPageElements()
+    const texts = this.sceneLayout.getSubPageTexts()
+    const badgeContainer = this.sceneLayout.getBadgeContainer()
+    const socialBadgeContainer = this.sceneLayout.getSocialBadgeContainer()
+    if (badgeContainer) badgeContainer.style.opacity = '0'
+    if (socialBadgeContainer) socialBadgeContainer.style.opacity = '0'
+    this.prepareTextMaterialize(elements, texts)
+    if (this.domRefs.backButton) {
+      this.prepareTextMaterialize([this.domRefs.backButton], ['[ Back ]'])
+    }
+
+    try {
+      await this.world.ready
+      await Promise.all([
+        TextAnimator.materialize(elements, texts, 1.0),
+        this.asciiRenderer.animateAsciiMaterialize(1.0),
+        this.domRefs.backButton
+          ? TextAnimator.materialize([this.domRefs.backButton], ['[ Back ]'], 0.8)
+          : Promise.resolve(),
+      ])
+      if (badgeContainer) gsap.to(badgeContainer, { opacity: 1, duration: 0.8, ease: 'power3.out' })
+      if (socialBadgeContainer) gsap.to(socialBadgeContainer, { opacity: 1, duration: 0.8, ease: 'power3.out' })
+    } catch (error) {
+      this.handleTransitionError(error)
+    } finally {
+      this.runSubPageDuringTransition = false
+      this.finishIntroTransition()
+    }
+  }
+
+  private async playInitialAsciiIntro(duration = 1.0) {
+    await this.world.ready
+    await this.asciiRenderer.animateAsciiMaterialize(duration)
+  }
+
+  private prepareTextMaterialize(elements: HTMLElement[], texts: string[]) {
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i]!
+      el.style.display = ''
+      el.textContent = ' '.repeat(texts[i]?.length || 0)
+    }
+  }
+
+  private finishIntroTransition() {
+    isAppTransitioning.value = false
+
+    const nextPage = this.pendingPage ?? activePage.value
+    this.pendingPage = null
+
+    if (!this.isMobileMode && nextPage !== this.currentPage) {
+      void this.handlePageTransition(this.currentPage, nextPage)
+    }
+  }
+
+  private getNavElements(): HTMLElement[] {
+    return Array.from(this.domRefs.navContainer?.querySelectorAll('[data-page-nav]') || []) as HTMLElement[]
+  }
+
+  private getNavTexts(): string[] {
+    return ['About', 'Experience', 'Projects', 'Contact']
   }
 
   private syncViewportMode() {
@@ -152,8 +267,8 @@ export class SceneRuntime {
 
     isAppTransitioning.value = true
 
-    const navSpans = Array.from(this.domRefs.navContainer?.querySelectorAll('[data-page-nav]') || []) as HTMLElement[]
-    const navTexts = ['About', 'Experience', 'Projects', 'Contact']
+    const navSpans = this.getNavElements()
+    const navTexts = this.getNavTexts()
     const backBtn = this.domRefs.backButton
 
     try {

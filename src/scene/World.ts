@@ -10,6 +10,7 @@ const REFLECTION_OPACITY = 0.4
 const SHOW_MARKER = false
 
 export class World {
+  readonly ready: Promise<void>
   scene: THREE.Scene
   groundMirror: Reflector
   originMarker: THREE.Mesh
@@ -19,8 +20,13 @@ export class World {
   private ambientLight: THREE.AmbientLight
   private dirLight: THREE.DirectionalLight
   private disposed = false
+  private isReady = false
+  private resolveReady: () => void = () => {}
 
   constructor(scene: THREE.Scene) {
+    this.ready = new Promise((resolve) => {
+      this.resolveReady = resolve
+    })
     this.scene = scene
 
     // Ambient Light and Directional Light
@@ -110,6 +116,7 @@ export class World {
     loader.load(modelUrl, (gltf) => {
       if (this.disposed) {
         disposeObject3D(gltf.scene)
+        this.markReady()
         return
       }
 
@@ -152,7 +159,17 @@ export class World {
       }
 
       this.scene.add(this.model)
+      this.markReady()
+    }, undefined, (error) => {
+      console.error('Failed to load model', error)
+      this.markReady()
     })
+  }
+
+  private markReady() {
+    if (this.isReady) return
+    this.isReady = true
+    this.resolveReady()
   }
 
   /** 更新模型动画混合器。 */
