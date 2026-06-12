@@ -21,7 +21,7 @@ export class TextAnimator {
   /**
    * 消散动画：字符按固定阈值逐个变为空格，直到完全消失。
    */
-  static dissolve(elements: HTMLDivElement[], duration = 1.0): Promise<void> {
+  static dissolve(elements: HTMLElement[], duration = 1.0): Promise<void> {
     if (elements.length === 0) return Promise.resolve()
 
     const originalTexts = elements.map((el) => el.textContent || '')
@@ -62,7 +62,7 @@ export class TextAnimator {
    * 重现动画：空格按固定阈值逐个变为目标字符。
    */
   static materialize(
-    elements: HTMLDivElement[],
+    elements: HTMLElement[],
     texts: string[],
     duration = 1.0,
   ): Promise<void> {

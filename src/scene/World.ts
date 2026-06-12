@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js'
 import modelUrl from '@/assets/models/cloud-from-world-of-final-fantasy.glb?url'
+import { getRenderPixelRatio } from '@/config/rendering'
 import { getThemeMirrorTint, getThemeSurfaceColor, type ThemeMode } from '@/state/themeState'
 
 // --- 参数配置区 ---
@@ -15,16 +16,20 @@ export class World {
   model: THREE.Group | null = null
   mixer: THREE.AnimationMixer | null = null
   private sceneSurfaceColor = getThemeSurfaceColor()
+  private ambientLight: THREE.AmbientLight
+  private dirLight: THREE.DirectionalLight
+  private disposed = false
 
   constructor(scene: THREE.Scene) {
     this.scene = scene
 
     // Ambient Light and Directional Light
-    scene.add(new THREE.AmbientLight(0xffffff, 2))
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 2)
+    scene.add(this.ambientLight)
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 3)
-    dirLight.position.set(10, 20, 10)
-    scene.add(dirLight)
+    this.dirLight = new THREE.DirectionalLight(0xffffff, 3)
+    this.dirLight.position.set(10, 20, 10)
+    scene.add(this.dirLight)
 
     // 添加镜面反射地面。
     const mirrorGeometry = new THREE.PlaneGeometry(100, 100)
@@ -55,8 +60,8 @@ export class World {
 
     this.groundMirror = new Reflector(mirrorGeometry, {
       clipBias: 0.003,
-      textureWidth: window.innerWidth * window.devicePixelRatio,
-      textureHeight: window.innerHeight * window.devicePixelRatio,
+      textureWidth: window.innerWidth * getRenderPixelRatio(),
+      textureHeight: window.innerHeight * getRenderPixelRatio(),
       color: getThemeMirrorTint(),
       shader: customShader,
     })
@@ -103,6 +108,11 @@ export class World {
     const loader = new GLTFLoader()
 
     loader.load(modelUrl, (gltf) => {
+      if (this.disposed) {
+        disposeObject3D(gltf.scene)
+        return
+      }
+
       this.model = gltf.scene
 
       // Compute bounding box to set proper scale and position
@@ -155,8 +165,8 @@ export class World {
   /** 窗口缩放时更新镜面的渲染目标分辨率。 */
   onResize() {
     this.groundMirror.getRenderTarget().setSize(
-      window.innerWidth * window.devicePixelRatio,
-      window.innerHeight * window.devicePixelRatio,
+      window.innerWidth * getRenderPixelRatio(),
+      window.innerHeight * getRenderPixelRatio(),
     )
   }
 
@@ -172,6 +182,55 @@ export class World {
   }
 
   dispose() {
-    // Renderer disposal is handled by SceneRuntime.
+    this.disposed = true
+
+    if (this.mixer && this.model) {
+      this.mixer.stopAllAction()
+      this.mixer.uncacheRoot(this.model)
+    }
+    this.mixer = null
+
+    if (this.model) {
+      this.scene.remove(this.model)
+      disposeObject3D(this.model)
+      this.model = null
+    }
+
+    this.scene.remove(this.groundMirror)
+    this.groundMirror.getRenderTarget().dispose()
+    this.groundMirror.geometry.dispose()
+    disposeMaterial(this.groundMirror.material)
+
+    this.scene.remove(this.originMarker)
+    this.originMarker.geometry.dispose()
+    disposeMaterial(this.originMarker.material)
+
+    this.scene.remove(this.ambientLight)
+    this.scene.remove(this.dirLight)
   }
+}
+
+function disposeObject3D(root: THREE.Object3D) {
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh
+    if (!mesh.isMesh) return
+
+    mesh.geometry?.dispose()
+    disposeMaterial(mesh.material)
+  })
+}
+
+function disposeMaterial(material: THREE.Material | THREE.Material[]) {
+  if (Array.isArray(material)) {
+    material.forEach(disposeMaterial)
+    return
+  }
+
+  for (const value of Object.values(material)) {
+    if (value instanceof THREE.Texture) {
+      value.dispose()
+    }
+  }
+
+  material.dispose()
 }
