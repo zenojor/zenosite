@@ -31,3 +31,21 @@ test('complete resolves the pending transition without killing tweens', async ()
   await transition
   assert.deepEqual(killed, [])
 })
+
+test('a replacement rejects the old animation and can complete independently', async () => {
+  const killed: string[] = []
+  const controller = new TransitionController()
+  const old = new Promise<void>((resolve, reject) => {
+    controller.track([{ kill: () => killed.push('old') }], resolve, reject)
+  })
+  const cancelled = assert.rejects(old, TransitionCancelledError)
+  const replacement = new Promise<void>((resolve, reject) => {
+    controller.track([{ kill: () => killed.push('replacement') }], resolve, reject)
+  })
+  await cancelled
+  controller.complete()
+  await replacement
+  controller.cancel()
+  controller.cancel()
+  assert.deepEqual(killed, ['old'])
+})

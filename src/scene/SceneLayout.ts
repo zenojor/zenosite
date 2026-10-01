@@ -1,7 +1,9 @@
-﻿import { prepareWithSegments, layoutNextLine, type LayoutCursor, type PreparedTextWithSegments } from '@chenglou/pretext'
+import { prepareWithSegments, layoutNextLine, type LayoutCursor, type PreparedTextWithSegments } from '@chenglou/pretext'
 import gsap from 'gsap'
+import { TransitionController } from './TransitionController'
 import { BREAKPOINTS, responsive } from '@/config/breakpoints'
 import { HOME_LAYOUT, SUB_PAGE_LAYOUT } from '@/config/layout'
+import { fitSubPageFontSize, getScrollViewport } from '@/config/layoutSizing'
 import { SITE_CONTENT, type SubPageContent } from '@/content/siteContent'
 import type { PageName } from '@/router/pages'
 import type { AsciiRenderer } from './AsciiRenderer'
@@ -9,6 +11,7 @@ import { createBadgeImage, createSocialBadgeLink, setBadgeImageHeights } from '.
 import { CopyToast } from './dom/copyToast'
 import { isSubPageObstacleLine } from './subPageObstacles'
 import { completeSentencePrefix } from './homeBodyFlow'
+import { setText, setStyle } from './dom/updates'
 
 export class SceneLayout {
   // ========== Home Dynamic Layout ==========
@@ -16,6 +19,7 @@ export class SceneLayout {
   private readonly FONT = '18px "Courier New", Courier, monospace'
   private preparedBody: PreparedTextWithSegments
   private bodyViewportKey = ''
+  private bodyLineCache = new Map<string, ReturnType<typeof layoutNextLine>>()
 
   private readonly TITLE_LINES = [
     ' _______  _______  __    _  _______        ___   _______         _______        ______   _______  __   __ ',
@@ -30,6 +34,9 @@ export class SceneLayout {
   private get TITLE_COLOR() { return HOME_LAYOUT.title.color }
   private readonly HEADLINE_FONT_FAMILY = "'Courier New', Courier, monospace"
 
+  private titleReferenceWidth = 0
+  private bodyGlyphWidth = 0
+  private subPageViewportKey = ''
   private currentTitleFontSize = 0
   private titleLineHeight = 0
   private lastWindowWidth = 0
@@ -44,6 +51,7 @@ export class SceneLayout {
   // ========== Subpage layout (preformatted ASCII art) ==========
   private currentSubPageContent: SubPageContent | null = null
   private subPageLinesPool: HTMLDivElement[] = []
+  private subPageLayoutContainer: HTMLDivElement | null = null
 
   // ========== Scrollable container ==========
   private scrollContainer: HTMLDivElement | null = null
@@ -60,7 +68,7 @@ export class SceneLayout {
    * 转场时由 GSAP 驱动，并在每帧 update() 中应用。
    */
   private homeVisibility = 1.0
-  private homeVisibilityTween: gsap.core.Tween | null = null
+  private readonly homeTransition = new TransitionController()
 
   /**
    * 为主页文字缓存固定随机阈值。
@@ -77,7 +85,11 @@ export class SceneLayout {
     const textMaskCanvas = document.createElement('canvas')
     textMaskCanvas.width = 256
     textMaskCanvas.height = 256
-    this.textMaskCtx = textMaskCanvas.getContext('2d', { willReadFrequently: true })!
+    this.textMaskCtx = textMaskCanvas.getContext('2d')!
+    this.textMaskCtx.font = `${HOME_LAYOUT.title.referenceFontSize}px ${this.HEADLINE_FONT_FAMILY}`
+    this.titleReferenceWidth = Math.max(...this.TITLE_LINES.map(line => this.textMaskCtx.measureText(line).width))
+    this.textMaskCtx.font = this.FONT
+    this.bodyGlyphWidth = this.textMaskCtx.measureText('M').width
   }
 
   // ========== Home layout ==========
@@ -86,6 +98,7 @@ export class SceneLayout {
     const key = `${window.innerWidth}:${window.innerHeight}:${width}:${height}:${glyphWidth}`
     if (key === this.bodyViewportKey) return
     this.bodyViewportKey = key
+    this.bodyLineCache.clear()
 
     // Choose the copy once per viewport, independently of the moving model.
     // Reserve two rows and 10% of the width for subsequent silhouette reflow.
@@ -103,6 +116,16 @@ export class SceneLayout {
     }
     const consumed = prepared.segments.slice(0, cursor.segmentIndex).join('').length + cursor.graphemeIndex
     this.preparedBody = prepareWithSegments(completeSentencePrefix(copy, consumed), this.FONT)
+  }
+
+  private layoutBodyLine(cursor: LayoutCursor, width: number) {
+    const key = `${cursor.segmentIndex}:${cursor.graphemeIndex}:${width}`
+    if (this.bodyLineCache.has(key)) return this.bodyLineCache.get(key)!
+    const line = layoutNextLine(this.preparedBody, cursor, width)
+    // Keep memory bounded as the model rotates through many silhouettes.
+    if (this.bodyLineCache.size >= 512) this.bodyLineCache.clear()
+    this.bodyLineCache.set(key, line)
+    return line
   }
 
   /** 对字符串应用可见度效果，使用缓存的固定阈值。 */
@@ -135,9 +158,7 @@ export class SceneLayout {
     // 1. Title Dimensions Update
     const titleRightSpace = responsive(HOME_LAYOUT.title.rightSpace)
     const availableWidth = Math.max(200, window.innerWidth / 2 - titleRightSpace - 20)
-    this.textMaskCtx.font = `${HOME_LAYOUT.title.referenceFontSize}px ${this.HEADLINE_FONT_FAMILY}`
-    this.textMaskCtx.letterSpacing = '0px'
-    const titleWidth = Math.max(...this.TITLE_LINES.map((line) => this.textMaskCtx.measureText(line).width))
+    const titleWidth = this.titleReferenceWidth
     // Fit the right-hand column continuously, including on larger screens.
     const targetFontSize = HOME_LAYOUT.title.referenceFontSize * availableWidth / titleWidth
     if (this.currentTitleFontSize !== targetFontSize || window.innerWidth !== this.lastWindowWidth) {
@@ -150,11 +171,11 @@ export class SceneLayout {
     while (this.titleLinesPool.length < this.TITLE_LINES.length) {
       const el = document.createElement('div')
       el.className = 'dynamic-title'
-      el.style.position = 'absolute'
-      el.style.color = this.TITLE_COLOR
-      el.style.pointerEvents = 'none'
-      el.style.whiteSpace = 'pre'
-      el.style.textAlign = 'right'
+      setStyle(el, 'position', 'absolute')
+      setStyle(el, 'color', this.TITLE_COLOR)
+      setStyle(el, 'pointerEvents', 'none')
+      setStyle(el, 'whiteSpace', 'pre')
+      setStyle(el, 'textAlign', 'right')
       dynamicLayoutContainer.appendChild(el)
       this.titleLinesPool.push(el)
     }
@@ -165,12 +186,12 @@ export class SceneLayout {
       const el = this.titleLinesPool[i]!
       const spacing = this.TITLE_LETTER_SPACINGS[i] || '0px'
 
-      el.textContent = this.applyVisibility(this.TITLE_LINES[i]!, this.homeVisibility, i)
-      el.style.right = `${titleRightSpace}px`
-      el.style.top = `${currentTitleY}px`
-      el.style.font = `${this.currentTitleFontSize}px ${this.HEADLINE_FONT_FAMILY}`
-      el.style.lineHeight = `${this.titleLineHeight}px`
-      el.style.letterSpacing = spacing
+      setText(el, this.applyVisibility(this.TITLE_LINES[i]!, this.homeVisibility, i))
+      setStyle(el, 'right', `${titleRightSpace}px`)
+      setStyle(el, 'top', `${currentTitleY}px`)
+      setStyle(el, 'font', `${this.currentTitleFontSize}px ${this.HEADLINE_FONT_FAMILY}`)
+      setStyle(el, 'lineHeight', `${this.titleLineHeight}px`)
+      setStyle(el, 'letterSpacing', spacing)
 
       currentTitleY += this.titleLineHeight
     }
@@ -190,9 +211,7 @@ export class SceneLayout {
     let lineTop = region.y
     const linesData = []
 
-    this.textMaskCtx.font = this.FONT
-    this.textMaskCtx.letterSpacing = '0px'
-    const glyphWidth = this.textMaskCtx.measureText('M').width
+    const glyphWidth = this.bodyGlyphWidth
     this.updatePreparedBody(window.innerWidth - titleRightSpace - 20 - region.x, region.height, glyphWidth)
     // Pretext 0.0.3 measures without CSS letter spacing. Reduce its available
     // width to account for the 1px spacing on every monospace body character.
@@ -212,7 +231,7 @@ export class SceneLayout {
 
       const width = currentSlotRight - slotLeft
       if (width >= glyphWidth + HOME_LAYOUT.body.letterSpacing) {
-        const line = layoutNextLine(this.preparedBody, cursor, width / measureScale)
+        const line = this.layoutBodyLine(cursor, width / measureScale)
         if (line !== null) {
           linesData.push({ x: slotLeft, y: lineTop, text: line.text })
           cursor = line.end
@@ -228,28 +247,28 @@ export class SceneLayout {
     if (navContainer) {
       if (window.innerWidth < BREAKPOINTS.mobile) {
         const navPadding = HOME_LAYOUT.nav.mobilePadding
-        navContainer.style.left = `${navPadding}px`
-        navContainer.style.width = `${window.innerWidth / 2 - navPadding * 2}px`
+        setStyle(navContainer, 'left', `${navPadding}px`)
+        setStyle(navContainer, 'width', `${window.innerWidth / 2 - navPadding * 2}px`)
       } else {
         const slotLeft = window.innerWidth / 2 + HOME_LAYOUT.nav.desktopXOffset
         const rightWidth = Math.max(0, window.innerWidth - titleRightSpace - slotLeft)
-        navContainer.style.left = `${slotLeft}px`
-        navContainer.style.width = `${rightWidth}px`
+        setStyle(navContainer, 'left', `${slotLeft}px`)
+        setStyle(navContainer, 'width', `${rightWidth}px`)
       }
-      navContainer.style.flexDirection = window.innerWidth < BREAKPOINTS.smallMobile ? 'column' : 'row'
+      setStyle(navContainer, 'flexDirection', window.innerWidth < BREAKPOINTS.smallMobile ? 'column' : 'row')
     }
 
     // Body text DOM pool management
     while (this.textLinesPool.length < linesData.length) {
       const el = document.createElement('div')
       el.className = 'dynamic-line'
-      el.style.position = 'absolute'
-      el.style.font = this.FONT
-      el.style.lineHeight = `${lineHeight}px`
-      el.style.color = 'var(--text-muted-color)'
-      el.style.letterSpacing = `${HOME_LAYOUT.body.letterSpacing}px`
-      el.style.pointerEvents = 'none'
-      el.style.whiteSpace = 'pre'
+      setStyle(el, 'position', 'absolute')
+      setStyle(el, 'font', this.FONT)
+      setStyle(el, 'lineHeight', `${lineHeight}px`)
+      setStyle(el, 'color', 'var(--text-muted-color)')
+      setStyle(el, 'letterSpacing', `${HOME_LAYOUT.body.letterSpacing}px`)
+      setStyle(el, 'pointerEvents', 'none')
+      setStyle(el, 'whiteSpace', 'pre')
       dynamicLayoutContainer.appendChild(el)
       this.textLinesPool.push(el)
     }
@@ -261,9 +280,9 @@ export class SceneLayout {
       const data = linesData[i]
       const el = this.textLinesPool[i]
       if (el && data) {
-        el.textContent = this.applyVisibility(data.text, this.homeVisibility, 1000 + i)
-        el.style.left = `${data.x}px`
-        el.style.top = `${data.y}px`
+        setText(el, this.applyVisibility(data.text, this.homeVisibility, 1000 + i))
+        setStyle(el, 'left', `${data.x}px`)
+        setStyle(el, 'top', `${data.y}px`)
       }
     }
   }
@@ -291,7 +310,11 @@ export class SceneLayout {
   ) {
     const content = SITE_CONTENT[pageName]
     if (!content) return
+    const viewportKey = `${pageName}:${window.innerWidth}:${window.innerHeight}`
+    if (viewportKey === this.subPageViewportKey) return
+    this.subPageViewportKey = viewportKey
     this.currentSubPageContent = content
+    this.subPageLayoutContainer = dynamicLayoutContainer
 
     const pageConfig = SUB_PAGE_LAYOUT[pageName]
     const rightMargin = responsive(pageConfig.rightMargin)
@@ -303,10 +326,18 @@ export class SceneLayout {
     const availableWidth = Math.max(200, window.innerWidth / 2 - rightMargin)
 
     // 等宽字体：每个字符宽度约等于 fontSize * 0.6。
-    const targetFontSize = Math.max(pageConfig.minFontSize, Math.min(pageConfig.maxFontSize, Math.floor(availableWidth / (maxLineLen * 0.6))))
+    const widthBasedSize = Math.max(pageConfig.minFontSize, Math.min(pageConfig.maxFontSize, Math.floor(availableWidth / (maxLineLen * 0.6))))
+    const targetFontSize = content.scrollable ? widthBasedSize : fitSubPageFontSize(
+      widthBasedSize, pageConfig.minFontSize, window.innerHeight, content.lines.length, pageConfig.verticalOffset,
+    )
     const lineHeight = targetFontSize // 与主页一致。
     // 整体内容高度。
     const totalHeight = content.lines.length * lineHeight
+    // Badges can wrap after their images load. Let the browser account for
+    // their real height as well as the preformatted text's measured height.
+    dynamicLayoutContainer.style.overflowY = content.scrollable ? '' : 'auto'
+    dynamicLayoutContainer.style.pointerEvents = content.scrollable ? '' : 'auto'
+    if (content.scrollable) dynamicLayoutContainer.scrollTop = 0
 
     const fontStr = `${targetFontSize}px ${this.HEADLINE_FONT_FAMILY}`
 
@@ -506,9 +537,9 @@ export class SceneLayout {
     }
 
     // Container top/bottom margins
-    const containerTopMargin = 80
-    const containerBottomMargin = 100
-    const containerHeight = window.innerHeight - containerTopMargin - containerBottomMargin
+    const viewport = getScrollViewport(window.innerHeight)
+    const containerTopMargin = viewport.top
+    const containerHeight = viewport.height
 
     // Create or reuse scroll container
     if (!this.scrollContainer) {
@@ -751,6 +782,7 @@ export class SceneLayout {
   /** 清除主页 DOM 元素。 */
   clearHome() {
     this.bodyViewportKey = ''
+    this.bodyLineCache.clear()
     for (const el of this.titleLinesPool) {
       el.remove()
     }
@@ -763,6 +795,13 @@ export class SceneLayout {
   }
 
   clearSubPage() {
+    this.subPageViewportKey = ''
+    if (this.subPageLayoutContainer) {
+      this.subPageLayoutContainer.style.overflowY = ''
+      this.subPageLayoutContainer.style.pointerEvents = ''
+      this.subPageLayoutContainer.scrollTop = 0
+      this.subPageLayoutContainer = null
+    }
     for (const el of this.subPageLinesPool) {
       el.remove()
     }
@@ -794,6 +833,7 @@ export class SceneLayout {
   }
 
   clearAll() {
+    this.killHomeTween()
     this.clearHome()
     this.clearSubPage()
   }
@@ -806,16 +846,16 @@ export class SceneLayout {
     this.killHomeTween()
     // 动画开始时重新生成阈值，让每次消散的波前图案不同。
     this.homeCharThresholds.clear()
-    return new Promise((resolve) => {
-      this.homeVisibilityTween = gsap.to(this, {
+    return new Promise((resolve, reject) => {
+      const tween = gsap.to(this, {
         homeVisibility: 0,
         duration,
         ease: 'power3.in',
         onComplete: () => {
-          this.homeVisibilityTween = null
-          resolve()
+          this.homeTransition.complete()
         },
       })
+      this.homeTransition.track([tween], resolve, reject)
     })
   }
 
@@ -828,16 +868,16 @@ export class SceneLayout {
     this.homeVisibility = 0
     // 动画开始时重新生成阈值，让每次重现的波前图案不同。
     this.homeCharThresholds.clear()
-    return new Promise((resolve) => {
-      this.homeVisibilityTween = gsap.to(this, {
+    return new Promise((resolve, reject) => {
+      const tween = gsap.to(this, {
         homeVisibility: 1,
         duration,
         ease: 'power3.out',
         onComplete: () => {
-          this.homeVisibilityTween = null
-          resolve()
+          this.homeTransition.complete()
         },
       })
+      this.homeTransition.track([tween], resolve, reject)
     })
   }
 
@@ -848,9 +888,6 @@ export class SceneLayout {
   }
 
   private killHomeTween() {
-    if (this.homeVisibilityTween) {
-      this.homeVisibilityTween.kill()
-      this.homeVisibilityTween = null
-    }
+    this.homeTransition.cancel()
   }
 }

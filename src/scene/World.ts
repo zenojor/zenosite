@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js'
 import modelUrl from '@/assets/models/cloud-from-world-of-final-fantasy.glb?url'
-import { getRenderPixelRatio } from '@/config/rendering'
+import { getReflectionSize } from '@/config/rendering'
 import { getThemeMirrorTint, getThemeSurfaceColor, type ThemeMode } from '@/state/themeState'
 
 // --- 参数配置区 ---
@@ -17,6 +17,7 @@ export class World {
   model: THREE.Group | null = null
   mixer: THREE.AnimationMixer | null = null
   private sceneSurfaceColor = getThemeSurfaceColor()
+  private reflectionBackground = new THREE.Color(this.sceneSurfaceColor)
   private ambientLight: THREE.AmbientLight
   private dirLight: THREE.DirectionalLight
   private disposed = false
@@ -64,10 +65,12 @@ export class World {
       `,
     }
 
+    const reflectionSize = getReflectionSize(window.innerWidth, window.innerHeight)
     this.groundMirror = new Reflector(mirrorGeometry, {
       clipBias: 0.003,
-      textureWidth: window.innerWidth * getRenderPixelRatio(),
-      textureHeight: window.innerHeight * getRenderPixelRatio(),
+      textureWidth: reflectionSize.width,
+      textureHeight: reflectionSize.height,
+      multisample: 0,
       color: getThemeMirrorTint(),
       shader: customShader,
     })
@@ -94,7 +97,7 @@ export class World {
       group: THREE.Group,
     ) {
       const prevBg = scene.background
-      scene.background = new THREE.Color(world.sceneSurfaceColor)
+      scene.background = world.reflectionBackground
       originalOnBeforeRender(renderer, scene, camera, geometry, material, group)
       scene.background = prevBg
     }
@@ -181,14 +184,16 @@ export class World {
 
   /** 窗口缩放时更新镜面的渲染目标分辨率。 */
   onResize() {
+    const size = getReflectionSize(window.innerWidth, window.innerHeight)
     this.groundMirror.getRenderTarget().setSize(
-      window.innerWidth * getRenderPixelRatio(),
-      window.innerHeight * getRenderPixelRatio(),
+      size.width,
+      size.height,
     )
   }
 
   setTheme(mode: ThemeMode) {
     this.sceneSurfaceColor = getThemeSurfaceColor(mode)
+    this.reflectionBackground.set(this.sceneSurfaceColor)
     const material = this.groundMirror.material as THREE.ShaderMaterial
     if (material.uniforms.color?.value instanceof THREE.Color) {
       material.uniforms.color.value.set(getThemeMirrorTint(mode))

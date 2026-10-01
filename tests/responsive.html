@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Responsive regression tests</title>
+  <style>
+    body { margin: 20px; font: 14px/1.5 system-ui; background: #f4f4f4; }
+    button { padding: 10px 18px; }
+    #status { font-weight: 700; }
+    #results { white-space: pre-wrap; }
+    iframe { display: block; border: 0; background: white; margin-top: 16px; }
+    .pass { color: #126a31; } .fail { color: #b21818; }
+  </style>
+</head>
+<body>
+  <h1>Responsive regression tests</h1>
+  <p>运行真实 Vue、路由、GSAP 和 WebGL 场景，验证跨断点及动画取消。约需 3–5 分钟。</p>
+  <button id="run" disabled>Run tests</button>
+  <p id="status">Ready</p>
+  <pre id="results"></pre>
+  <iframe id="site" title="Website under test" width="1280" height="720"></iframe>
+  <script type="module">
+    import { TextAnimator } from '/src/scene/TextAnimator.ts'
+    import { SITE_CONTENT } from '/src/content/siteContent.ts'
+    import { ASCII_CONFIG } from '/src/config/ascii.ts'
+    import { asciiCellOverlapsObstacle, isSubPageObstacleLine } from '/src/scene/subPageObstacles.ts'
+
+    const iframe = document.querySelector('#site')
+    const status = document.querySelector('#status')
+    const results = document.querySelector('#results')
+    const pages = ['about', 'experience', 'projects', 'contact']
+    const names = ['About', 'Experience', 'Projects', 'Contact']
+    const errors = []
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+    const check = (condition, message) => { if (!condition) throw new Error(message) }
+    const until = async (predicate, label, timeout = 8000) => {
+      const deadline = performance.now() + timeout
+      while (performance.now() < deadline) {
+        if (predicate()) return
+        await sleep(30)
+      }
+      throw new Error(`Timed out: ${label}`)
+    }
+    const doc = () => iframe.contentDocument
+    const visible = el => !!el && iframe.contentWindow.getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0
+    const state = () => ({
+      path: iframe.contentWindow.location.pathname,
+      busy: doc()?.querySelector('.nav-container')?.getAttribute('aria-disabled') !== 'false',
+      ascii: (doc()?.querySelector('.ascii-overlay')?.textContent || '').trim().length,
+    })
+    const waitReady = async () => {
+      // Router pushes and Vue's DOM updates are asynchronous. Require a stable
+      // idle period instead of mistaking the previous page for a ready target.
+      let idleSince = null
+      await until(() => {
+        if (!doc()?.querySelector('canvas') || state().busy || !state().ascii) {
+          idleSince = null
+          return false
+        }
+        idleSince ??= performance.now()
+        return performance.now() - idleSince >= 120
+      }, 'scene ready')
+    }
+    const resize = async (width, height = 720) => {
+      iframe.width = width
+      iframe.height = height
+      await until(() => iframe.contentWindow.innerWidth === width && iframe.contentWindow.innerHeight === height, 'viewport applied')
+      await sleep(70)
+    }
+    const load = async (page = 'home', width = 1280, height = 720, ready = true) => {
+      iframe.width = width
+      iframe.height = height
+      const path = page === 'home' ? '/' : `/${page}`
+      await new Promise(resolve => { iframe.onload = resolve; iframe.src = path })
+      await until(() => doc()?.querySelector('canvas'), 'app mounted')
+      iframe.contentWindow.addEventListener('error', event => errors.push(event.message))
+      iframe.contentWindow.addEventListener('unhandledrejection', event => errors.push(String(event.reason)))
+      if (ready) await waitReady()
+    }
+    const assertScene = (page = 'home', mobile = false) => {
+      check(!state().busy, 'navigation stayed locked')
+      check(state().path === (page === 'home' ? '/' : `/${page}`), `route mismatch: ${state().path}`)
+      const nav = doc().querySelector('.nav-container')
+      const buttons = [...doc().querySelectorAll('[data-page-nav]')]
+      const back = doc().querySelector('.back-btn')
+      const homeText = [...doc().querySelectorAll('.dynamic-line:not(.subpage-line)')].map(el => el.textContent).join(' ')
+      const subLines = [...doc().querySelectorAll('.subpage-line')]
+      check(state().ascii > 0, 'ASCII layer stayed empty')
+      check(visible(doc().querySelector('.wechat-badge')) === mobile, 'mobile contact visibility mismatch')
+      check(visible(nav) === (!mobile && page === 'home'), 'navigation container visibility mismatch')
+      check(visible(back) === (!mobile && page !== 'home'), 'back button visibility mismatch')
+      const canvas = doc().querySelector('canvas')
+      const bounds = canvas.getBoundingClientRect()
+      check(bounds.width === iframe.contentWindow.innerWidth && bounds.height === iframe.contentWindow.innerHeight, 'canvas retained old dimensions')
+      if (mobile) {
+        check(subLines.length === 0 && !homeText.trim(), 'desktop text leaked into mobile scene')
+      } else if (page === 'home') {
+        check(buttons.length === 4 && buttons.every((el, i) => visible(el) && !el.disabled && el.textContent === names[i]), 'navigation button text/display did not recover')
+        check(homeText.includes('My name is zeno'), 'home body visibility did not recover')
+        check([...doc().querySelectorAll('.dynamic-title')].some(el => el.textContent.trim()), 'home title visibility did not recover')
+        check(subLines.length === 0, 'stale subpage content remained')
+      } else {
+        check(back.textContent === '[ Back ]' && !back.disabled, 'back button text/display did not recover')
+        check(subLines.length === SITE_CONTENT[page].lines.length, 'subpage line count changed')
+        check(subLines.every((el, i) => el.textContent === SITE_CONTENT[page].lines[i] && (!el.textContent.trim() || visible(el))), 'subpage text remained dissolved or detached')
+        check([...doc().querySelectorAll('.subpage-badges,.subpage-social-badges')].every(el => Number(iframe.contentWindow.getComputedStyle(el).opacity) > 0), 'badge remained transparent')
+      }
+      check(errors.length === 0, `runtime errors: ${errors.join('; ')}`)
+    }
+    const clickNav = page => {
+      const button = doc().querySelectorAll('[data-page-nav]')[pages.indexOf(page)]
+      check(visible(button) && !button.disabled, `cannot navigate to ${page}`)
+      button.click()
+    }
+    const navigate = async page => { clickNav(page); await waitReady(); assertScene(page) }
+    const roundTrip = async () => {
+      await resize(390, 844)
+      await waitReady()
+      assertScene('home', true)
+      await resize(1280, 720)
+      await waitReady()
+      assertScene('home')
+    }
+    const cases = []
+    const add = (name, run) => cases.push({ name, run })
+
+    add('首页连续三次桌面→手机→桌面', async () => {
+      await load()
+      for (let i = 0; i < 3; i++) await roundTrip()
+      await navigate('contact')
+    })
+    for (const page of pages) {
+      add(`${page}: 从首页进入子页后跨断点往返`, async () => {
+        await load(); await navigate(page); await roundTrip(); await navigate(page)
+      })
+      add(`${page}: 桌面直接进入子页后跨断点往返`, async () => {
+        await load(page); assertScene(page); await roundTrip()
+      })
+      add(`${page}: 手机直接访问子页→桌面`, async () => {
+        await load(page, 390, 844); assertScene('home', true)
+        await resize(1280); await waitReady(); assertScene('home'); await navigate(page)
+      })
+    }
+    for (const page of ['home', ...pages]) {
+      add(`${page}: 首屏入场未完成时跨断点`, async () => {
+        await load(page, 1280, 720, false); await roundTrip(); await sleep(1300); assertScene('home')
+      })
+    }
+    for (const [phase, delay] of [['消散', 100], ['相机移动', 1250], ['文字重现', 2400]]) {
+      for (const page of pages) {
+        add(`首页→${page}: ${phase}期间跨断点`, async () => {
+          await load(); clickNav(page); await sleep(delay); await roundTrip()
+          await sleep(3300); assertScene('home')
+        })
+      }
+      for (const page of ['about', 'projects']) {
+        add(`${page}→首页: ${phase}期间跨断点`, async () => {
+          await load(page); doc().querySelector('.back-btn').click(); await sleep(delay); await roundTrip()
+          await sleep(3300); assertScene('home')
+        })
+      }
+      add(`about→projects: ${phase}期间跨断点`, async () => {
+        await load('about'); iframe.contentWindow.history.pushState(null, '', '/projects')
+        iframe.contentWindow.dispatchEvent(new PopStateEvent('popstate'))
+        await sleep(delay); await roundTrip(); await sleep(3300); assertScene('home')
+      })
+      add(`同属桌面: 首页→projects ${phase}期间改变尺寸`, async () => {
+        await load(); clickNav('projects'); await sleep(delay); await resize(1024, 600)
+        await waitReady(); await sleep(3300); assertScene('projects')
+      })
+    }
+    add('首次在手机加载，入场途中变桌面', async () => {
+      await load('home', 390, 844, false); await resize(1280); await waitReady()
+      await sleep(1500); assertScene('home'); await navigate('about')
+    })
+    add('767/768 临界尺寸连续十次切换', async () => {
+      await load('projects')
+      for (let i = 0; i < 5; i++) {
+        await resize(767); await waitReady(); assertScene('home', true)
+        await resize(768); await waitReady(); assertScene('home')
+      }
+      await resize(1280); await navigate('experience')
+    })
+    add('十次快速跨断点且最后停在桌面', async () => {
+      await load(); clickNav('projects')
+      for (let i = 0; i < 10; i++) {
+        await resize(390, 844); await resize(1280, 720)
+      }
+      await waitReady(); await sleep(3300); assertScene('home'); await navigate('contact')
+    })
+    add('十次快速跨断点且最后停在手机', async () => {
+      await load(); clickNav('about')
+      for (let i = 0; i < 10; i++) {
+        await resize(390, 844); await resize(1280, 720)
+      }
+      await resize(390, 844); await waitReady(); await sleep(3300); assertScene('home', true)
+    })
+    for (const page of pages) {
+      add(`${page}: 768/1024/1333/1920 宽度及短窗口`, async () => {
+        await load(page)
+        for (const [width, height] of [[768, 720], [1024, 720], [1333, 720], [1920, 1080], [1280, 390]]) {
+          await resize(width, height); await waitReady(); assertScene(page)
+        }
+      })
+    }
+    add('手机 320/390/638/767 及横屏往返', async () => {
+      await load('home', 390, 844)
+      for (const [width, height] of [[320, 568], [390, 844], [638, 390], [767, 390], [844, 390], [390, 844]]) {
+        await resize(width, height); await waitReady(); assertScene('home', width < 768)
+      }
+    })
+    add('项目页滚动→桌面缩放→跨断点后重新打开', async () => {
+      await load('projects')
+      const scroll = doc().querySelector('.subpage-scroll-container')
+      scroll.scrollTop = scroll.scrollHeight
+      await sleep(100)
+      check(scroll.scrollTop > 0, 'project scrolling stopped')
+      await resize(1024, 600); await waitReady(); assertScene('projects')
+      check(doc().querySelector('.subpage-scroll-container').scrollTop > 0, 'desktop resize lost scroll position')
+      await roundTrip(); await navigate('projects')
+      check(doc().querySelector('.subpage-scroll-container').scrollTop === 0, 'new project entry retained stale scroll')
+      // Check DOM obstacle masking after scrolling using the same cell geometry.
+      const pane = doc().querySelector('.subpage-scroll-container')
+      pane.scrollTop = pane.scrollHeight
+      await sleep(100)
+      const paneRect = pane.getBoundingClientRect()
+      const rects = [...doc().querySelectorAll('.subpage-line')].filter((_, i) => isSubPageObstacleLine(SITE_CONTENT.projects.lines[i])).map(el => el.getBoundingClientRect()).map(rect => ({ x: rect.left, y: Math.max(rect.top, paneRect.top), width: rect.width, height: Math.min(rect.bottom, paneRect.bottom) - Math.max(rect.top, paneRect.top) })).filter(rect => rect.height > 0)
+      for (const row of doc().querySelectorAll('.ascii-line')) {
+        for (let c = 0; c < row.textContent.length; c++) {
+          if (row.textContent[c] === ' ') continue
+          check(!rects.some(rect => asciiCellOverlapsObstacle(c * ASCII_CONFIG.charWidth, Number.parseFloat(row.style.top), ASCII_CONFIG.charWidth, ASCII_CONFIG.charHeight, rect, 4, 1)), 'ASCII overlapped scrolled text')
+        }
+      }
+    })
+
+    const baselineCount = cases.length
+    add('取消文字/徽章动画会结束 Promise，且不覆盖新动画', async () => {
+      const animator = new TextAnimator()
+      const element = document.createElement('button')
+      element.textContent = 'About'
+      const badge = document.createElement('span')
+      badge.textContent = 'badge'
+      document.body.append(element, badge)
+      try {
+        const pending = Promise.allSettled([animator.dissolve([element], 0.2), animator.fade(badge, 0, 0.2)])
+        animator.cancel()
+        const outcomes = await pending
+        check(outcomes.every(result => result.status === 'rejected' && result.reason.name === 'TransitionCancelledError'), 'cancel left pending promises')
+        element.textContent = 'About'
+        element.style.display = ''
+        await sleep(250)
+        check(element.textContent === 'About' && visible(element), 'old callback hid restored text')
+        await animator.materialize([element], ['Projects'], 0.03)
+        check(element.textContent === 'Projects', 'replacement animation could not complete')
+        const reveal = animator.materialize([element], ['Contact'], 0.2)
+        const cancelled = Promise.allSettled([reveal])
+        animator.cancel()
+        check((await cancelled)[0].status === 'rejected', 'materialize promise did not cancel')
+      } finally {
+        animator.cancel()
+        element.remove()
+        badge.remove()
+      }
+    })
+    add('浏览器后退/前进及跨断点后的历史导航', async () => {
+      await load(); await navigate('about')
+      doc().querySelector('.back-btn').click(); await waitReady(); assertScene('home')
+      iframe.contentWindow.history.back(); await waitReady(); assertScene('about')
+      iframe.contentWindow.history.forward(); await waitReady(); assertScene('home')
+      await navigate('projects'); await roundTrip()
+      iframe.contentWindow.history.back(); await waitReady(); assertScene('home')
+    })
+    add('切页期间连续路由变化，以最后的 about 为准', async () => {
+      await load('about')
+      for (const page of ['projects', 'contact', 'about']) {
+        iframe.contentWindow.history.pushState(null, '', `/${page}`)
+        iframe.contentWindow.dispatchEvent(new PopStateEvent('popstate'))
+        await sleep(80)
+      }
+      await waitReady(); assertScene('about')
+    })
+    add('1920 宽、390/160 高的窗口仍可读完所有子页', async () => {
+      for (const page of pages) {
+        await load(page)
+        for (const height of [390, 160]) {
+          await resize(1920, height); await waitReady(); assertScene(page)
+          if (page === 'projects') {
+            const pane = doc().querySelector('.subpage-scroll-container')
+            const rect = pane.getBoundingClientRect()
+            check(rect.height > 0 && rect.top >= 0 && rect.bottom <= height, 'short project scroll viewport invalid')
+            pane.scrollTop = pane.scrollHeight
+          } else {
+            const pane = doc().querySelector('.dynamic-layout')
+            if (pane.scrollHeight > pane.clientHeight) {
+              check(iframe.contentWindow.getComputedStyle(pane).overflowY === 'auto', 'short page content clipped without scrolling')
+              pane.scrollTop = pane.scrollHeight
+            }
+          }
+          await sleep(80)
+          check([...doc().querySelectorAll('.subpage-line')].at(-1).getBoundingClientRect().bottom <= height + 1, 'last line unreachable in short viewport')
+          check([...doc().querySelectorAll('.subpage-badges,.subpage-social-badges,.subpage-link-badges')].every(el => el.getBoundingClientRect().bottom <= height + 1), 'badge unreachable in short viewport')
+        }
+        await resize(1280, 720); await waitReady(); assertScene(page)
+        check(doc().querySelector('.dynamic-layout').scrollTop === 0, 'stale outer scroll offset after growing window')
+      }
+    })
+    for (const [phase, delay] of [['消散', 100], ['相机移动', 1250], ['文字重现', 2400]]) {
+      add(`同属桌面: projects→首页 ${phase}期间改变尺寸`, async () => {
+        await load('projects'); doc().querySelector('.back-btn').click(); await sleep(delay)
+        await resize(1024, 600); await waitReady(); await sleep(3300); assertScene('home')
+      })
+    }
+    const selectedCases = new URLSearchParams(location.search).get('case') === 'short'
+      ? cases.filter(test => test.name.startsWith('1920 宽'))
+      : new URLSearchParams(location.search).get('suite') === 'extra'
+      ? cases.filter((test, index) => index >= baselineCount || test.name.includes('宽度及短窗口'))
+      : cases
+
+    document.querySelector('#run').onclick = async event => {
+      const runButton = event.currentTarget
+      runButton.disabled = true
+      results.textContent = ''
+      errors.length = 0
+      let passed = 0
+      const failures = []
+      for (const [index, test] of selectedCases.entries()) {
+        status.textContent = `${index + 1}/${selectedCases.length}: ${test.name}`
+        try {
+          await test.run()
+          passed++
+          results.textContent += `PASS ${test.name}\n`
+        } catch (error) {
+          failures.push({ name: test.name, error: error.message, state: state() })
+          results.textContent += `FAIL ${test.name}: ${error.message}\n`
+        }
+      }
+      status.textContent = `Complete: ${passed}/${selectedCases.length} passed`
+      status.className = failures.length ? 'fail' : 'pass'
+      results.dataset.report = JSON.stringify({ passed, total: selectedCases.length, failures, errors })
+      runButton.disabled = false
+    }
+    document.querySelector('#run').disabled = false
+  </script>
+</body>
+</html>

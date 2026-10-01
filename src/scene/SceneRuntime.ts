@@ -1,6 +1,5 @@
-﻿import * as THREE from 'three'
+import * as THREE from 'three'
 import { watch } from 'vue'
-import gsap from 'gsap'
 import { CameraManager } from './CameraManager'
 import { World } from './World'
 import { AsciiRenderer } from './AsciiRenderer'
@@ -31,8 +30,13 @@ export class SceneRuntime {
   private world: World
   private asciiRenderer: AsciiRenderer
   private sceneLayout: SceneLayout
+  private readonly textAnimator = new TextAnimator()
+  private transitionVersion = 0
+  private disposed = false
+  private viewportMobile = isMobileViewport()
 
   private animationId: number | null = null
+  private resizeId: number | null = null
   private domRefs: SceneRuntimeRefs
 
   private currentPage: PageName = 'home'
@@ -75,7 +79,7 @@ export class SceneRuntime {
         return
       }
 
-      if (newPage === oldPage || newPage === this.currentPage) {
+      if (newPage === oldPage) {
         return
       }
 
@@ -109,7 +113,8 @@ export class SceneRuntime {
     this.syncViewportMode()
     this.playInitialTextIntro()
     window.addEventListener('resize', this.onResize)
-    this.animate()
+    document.addEventListener('visibilitychange', this.onVisibilityChange)
+    if (!document.hidden) this.animate()
   }
 
   private playInitialTextIntro() {
@@ -131,6 +136,7 @@ export class SceneRuntime {
   }
 
   private async playInitialHomeIntro() {
+    const version = ++this.transitionVersion
     isAppTransitioning.value = true
     this.runHomeDuringTransition = true
 
@@ -143,20 +149,25 @@ export class SceneRuntime {
 
     try {
       await this.world.ready
+      if (!this.isCurrentTransition(version)) return
       await Promise.all([
         this.sceneLayout.animateHomeMaterialize(1.0),
         this.asciiRenderer.animateAsciiMaterialize(1.0),
-        TextAnimator.materialize(navSpans, navTexts, 0.8),
+        this.textAnimator.materialize(navSpans, navTexts, 0.8),
       ])
+      if (!this.isCurrentTransition(version)) return
     } catch (error) {
       this.handleTransitionError(error)
     } finally {
-      this.runHomeDuringTransition = false
-      this.finishIntroTransition()
+      if (this.isCurrentTransition(version)) {
+        this.runHomeDuringTransition = false
+        this.finishIntroTransition()
+      }
     }
   }
 
   private async playInitialSubPageIntro(page: Exclude<PageName, 'home'>) {
+    const version = ++this.transitionVersion
     isAppTransitioning.value = true
     this.runSubPageDuringTransition = true
 
@@ -176,26 +187,41 @@ export class SceneRuntime {
 
     try {
       await this.world.ready
+      if (!this.isCurrentTransition(version)) return
       await Promise.all([
-        TextAnimator.materialize(elements, texts, 1.0),
+        this.textAnimator.materialize(elements, texts, 1.0),
         this.asciiRenderer.animateAsciiMaterialize(1.0),
         this.domRefs.backButton
-          ? TextAnimator.materialize([this.domRefs.backButton], ['[ Back ]'], 0.8)
+          ? this.textAnimator.materialize([this.domRefs.backButton], ['[ Back ]'], 0.8)
           : Promise.resolve(),
       ])
-      if (badgeContainer) gsap.to(badgeContainer, { opacity: 1, duration: 0.8, ease: 'power3.out' })
-      if (socialBadgeContainer) gsap.to(socialBadgeContainer, { opacity: 1, duration: 0.8, ease: 'power3.out' })
+      if (!this.isCurrentTransition(version)) return
+      if (badgeContainer) void this.textAnimator.fade(badgeContainer, 1).catch(this.handleTransitionError)
+      if (socialBadgeContainer) void this.textAnimator.fade(socialBadgeContainer, 1).catch(this.handleTransitionError)
     } catch (error) {
       this.handleTransitionError(error)
     } finally {
-      this.runSubPageDuringTransition = false
-      this.finishIntroTransition()
+      if (this.isCurrentTransition(version)) {
+        this.runSubPageDuringTransition = false
+        this.finishIntroTransition()
+      }
     }
   }
 
   private async playInitialAsciiIntro(duration = 1.0) {
-    await this.world.ready
-    await this.asciiRenderer.animateAsciiMaterialize(duration)
+    const version = ++this.transitionVersion
+    isAppTransitioning.value = true
+    try {
+      await this.world.ready
+      if (!this.isCurrentTransition(version)) return
+      await this.asciiRenderer.animateAsciiMaterialize(duration)
+    } finally {
+      if (this.isCurrentTransition(version)) this.finishIntroTransition()
+    }
+  }
+
+  private isCurrentTransition(version: number) {
+    return !this.disposed && version === this.transitionVersion
   }
 
   private prepareTextMaterialize(elements: HTMLElement[], texts: string[]) {
@@ -226,30 +252,39 @@ export class SceneRuntime {
   }
 
   private syncViewportMode() {
-    if (this.isMobileMode) {
-      this.currentPage = 'home'
-      if (this.cameraManager.getMode() !== 'orbit') {
-        void this.cameraManager.transitionTo('home', 0.6).catch(this.handleTransitionError)
-      }
-      this.sceneLayout.clearAll()
-      this.asciiRenderer.clearAsciiPool()
-      this.domRefs.dynamicLayoutContainer.style.display = 'none'
-      if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'none'
-      if (this.domRefs.backButton) this.domRefs.backButton.style.display = 'none'
-      return
-    }
+    // A completed dissolve hides individual buttons, not just their container.
+    const navElements = this.getNavElements()
+    const navTexts = this.getNavTexts()
+    navElements.forEach((element, index) => {
+      element.style.display = ''
+      element.textContent = navTexts[index]!
+    })
+    if (this.domRefs.backButton) this.domRefs.backButton.textContent = '[ Back ]'
 
-    this.domRefs.dynamicLayoutContainer.style.display = 'block'
-
-    if (activePage.value !== 'home') {
-      this.currentPage = activePage.value
-      if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'none'
-      if (this.domRefs.backButton) this.domRefs.backButton.style.display = 'block'
-    } else {
-      this.currentPage = 'home'
-      if (this.domRefs.backButton) this.domRefs.backButton.style.display = 'none'
-      if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'flex'
+    this.domRefs.dynamicLayoutContainer.style.display = this.isMobileMode ? 'none' : 'block'
+    if (this.domRefs.navContainer) {
+      this.domRefs.navContainer.style.display = !this.isMobileMode && this.currentPage === 'home' ? 'flex' : 'none'
     }
+    if (this.domRefs.backButton) {
+      this.domRefs.backButton.style.display = !this.isMobileMode && this.currentPage !== 'home' ? 'block' : 'none'
+    }
+  }
+
+  private settleViewport(page: PageName) {
+    // Invalidate continuations before rejecting any pending animation promises.
+    this.transitionVersion++
+    this.textAnimator.cancel()
+    this.sceneLayout.setHomeVisibility(1)
+    this.asciiRenderer.setAsciiVisibility(1)
+    this.sceneLayout.clearAll()
+    this.asciiRenderer.clearAsciiPool()
+    this.runHomeDuringTransition = false
+    this.runSubPageDuringTransition = false
+    this.pendingPage = null
+    this.currentPage = page
+    isAppTransitioning.value = false
+    void this.cameraManager.transitionTo(page, 0).catch(this.handleTransitionError)
+    this.syncViewportMode()
   }
 
   private async handlePageTransition(from: PageName, to: PageName) {
@@ -265,6 +300,7 @@ export class SceneRuntime {
       return
     }
 
+    const version = ++this.transitionVersion
     isAppTransitioning.value = true
 
     const navSpans = this.getNavElements()
@@ -277,13 +313,16 @@ export class SceneRuntime {
         await Promise.all([
           this.sceneLayout.animateHomeDissolve(1.0),
           this.asciiRenderer.animateAsciiDissolve(1.0),
-          TextAnimator.dissolve(navSpans, 0.8),
+          this.textAnimator.dissolve(navSpans, 0.8),
         ])
+        if (!this.isCurrentTransition(version)) return
         if (this.domRefs.navContainer) this.domRefs.navContainer.style.display = 'none'
         this.runHomeDuringTransition = false
+        this.sceneLayout.clearHome()
         this.asciiRenderer.clearAsciiPool()
 
         await this.cameraManager.transitionTo(to, 1.2)
+        if (!this.isCurrentTransition(version)) return
         this.currentPage = to
 
         if (to !== 'home') {
@@ -298,12 +337,13 @@ export class SceneRuntime {
           if (socialBadgeContainer) socialBadgeContainer.style.opacity = '0'
 
           await Promise.all([
-            TextAnimator.materialize(elements, texts, 1.0),
+            this.textAnimator.materialize(elements, texts, 1.0),
             this.asciiRenderer.animateAsciiMaterialize(1.0),
-            backBtn ? TextAnimator.materialize([backBtn], ['[ Back ]'], 0.8) : Promise.resolve(),
+            backBtn ? this.textAnimator.materialize([backBtn], ['[ Back ]'], 0.8) : Promise.resolve(),
           ])
-          if (badgeContainer) gsap.to(badgeContainer, { opacity: 1, duration: 0.8, ease: 'power3.out' })
-          if (socialBadgeContainer) gsap.to(socialBadgeContainer, { opacity: 1, duration: 0.8, ease: 'power3.out' })
+          if (!this.isCurrentTransition(version)) return
+          if (badgeContainer) void this.textAnimator.fade(badgeContainer, 1).catch(this.handleTransitionError)
+          if (socialBadgeContainer) void this.textAnimator.fade(socialBadgeContainer, 1).catch(this.handleTransitionError)
           this.runSubPageDuringTransition = false
         }
       } else if (to === 'home') {
@@ -313,18 +353,20 @@ export class SceneRuntime {
         const badgeContainer = this.sceneLayout.getBadgeContainer()
         const socialBadgeContainer = this.sceneLayout.getSocialBadgeContainer()
         await Promise.all([
-          TextAnimator.dissolve(elements, 1.0),
+          this.textAnimator.dissolve(elements, 1.0),
           this.asciiRenderer.animateAsciiDissolve(1.0),
-          backBtn ? TextAnimator.dissolve([backBtn], 0.8) : Promise.resolve(),
-          badgeContainer ? gsap.to(badgeContainer, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
-          socialBadgeContainer ? gsap.to(socialBadgeContainer, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
+          backBtn ? this.textAnimator.dissolve([backBtn], 0.8) : Promise.resolve(),
+          badgeContainer ? this.textAnimator.fade(badgeContainer, 0, 0.8, 'power3.in') : Promise.resolve(),
+          socialBadgeContainer ? this.textAnimator.fade(socialBadgeContainer, 0, 0.8, 'power3.in') : Promise.resolve(),
         ])
+        if (!this.isCurrentTransition(version)) return
         this.runSubPageDuringTransition = false
         this.sceneLayout.clearSubPage()
         this.asciiRenderer.clearAsciiPool()
 
         // 2. Move the camera back to home.
         await this.cameraManager.transitionTo('home', 1.2)
+        if (!this.isCurrentTransition(version)) return
         this.currentPage = 'home'
 
         // 3. Materialize home text, ASCII, and navigation.
@@ -333,8 +375,9 @@ export class SceneRuntime {
         await Promise.all([
           this.sceneLayout.animateHomeMaterialize(1.0),
           this.asciiRenderer.animateAsciiMaterialize(1.0),
-          TextAnimator.materialize(navSpans, navTexts, 0.8),
+          this.textAnimator.materialize(navSpans, navTexts, 0.8),
         ])
+        if (!this.isCurrentTransition(version)) return
         this.runHomeDuringTransition = false
       } else {
         // Transition between subpages.
@@ -343,16 +386,18 @@ export class SceneRuntime {
         const badgeContainerOld = this.sceneLayout.getBadgeContainer()
         const socialBadgeContainerOld = this.sceneLayout.getSocialBadgeContainer()
         await Promise.all([
-          TextAnimator.dissolve(elementsOld, 1.0),
+          this.textAnimator.dissolve(elementsOld, 1.0),
           this.asciiRenderer.animateAsciiDissolve(1.0),
-          badgeContainerOld ? gsap.to(badgeContainerOld, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
-          socialBadgeContainerOld ? gsap.to(socialBadgeContainerOld, { opacity: 0, duration: 0.8, ease: 'power3.in' }) : Promise.resolve(),
+          badgeContainerOld ? this.textAnimator.fade(badgeContainerOld, 0, 0.8, 'power3.in') : Promise.resolve(),
+          socialBadgeContainerOld ? this.textAnimator.fade(socialBadgeContainerOld, 0, 0.8, 'power3.in') : Promise.resolve(),
         ])
+        if (!this.isCurrentTransition(version)) return
         this.runSubPageDuringTransition = false
         this.sceneLayout.clearSubPage()
         this.asciiRenderer.clearAsciiPool()
 
         await this.cameraManager.transitionTo(to, 1.2)
+        if (!this.isCurrentTransition(version)) return
         this.currentPage = to
 
         this.runSubPageDuringTransition = true
@@ -366,36 +411,49 @@ export class SceneRuntime {
         if (socialBadgeContainerNew) socialBadgeContainerNew.style.opacity = '0'
 
         await Promise.all([
-          TextAnimator.materialize(elementsNew, textsNew, 1.0),
+          this.textAnimator.materialize(elementsNew, textsNew, 1.0),
           this.asciiRenderer.animateAsciiMaterialize(1.0),
         ])
-        if (badgeContainerNew) gsap.to(badgeContainerNew, { opacity: 1, duration: 0.8, ease: 'power3.out' })
-        if (socialBadgeContainerNew) gsap.to(socialBadgeContainerNew, { opacity: 1, duration: 0.8, ease: 'power3.out' })
+        if (!this.isCurrentTransition(version)) return
+        if (badgeContainerNew) void this.textAnimator.fade(badgeContainerNew, 1).catch(this.handleTransitionError)
+        if (socialBadgeContainerNew) void this.textAnimator.fade(socialBadgeContainerNew, 1).catch(this.handleTransitionError)
         this.runSubPageDuringTransition = false
       }
     } catch (error) {
       this.handleTransitionError(error)
     } finally {
-      this.runHomeDuringTransition = false
-      this.runSubPageDuringTransition = false
-      isAppTransitioning.value = false
+      if (this.isCurrentTransition(version)) {
+        this.runHomeDuringTransition = false
+        this.runSubPageDuringTransition = false
+        isAppTransitioning.value = false
 
-      const nextPage = this.pendingPage ?? activePage.value
-      this.pendingPage = null
+        const nextPage = this.pendingPage ?? activePage.value
+        this.pendingPage = null
 
-      if (!this.isMobileMode && nextPage !== this.currentPage) {
-        void this.handlePageTransition(this.currentPage, nextPage)
+        if (!this.isMobileMode && nextPage !== this.currentPage) {
+          void this.handlePageTransition(this.currentPage, nextPage)
+        }
       }
     }
   }
 
   private animate = () => {
     this.animationId = requestAnimationFrame(this.animate)
-    const delta = this.clock.getDelta()
+    const delta = Math.min(this.clock.getDelta(), 0.1)
 
     this.world.update(delta)
     this.cameraManager.update()
     const camera = this.cameraManager.camera
+
+    this.updateOverlay(camera)
+    this.renderer.render(this.scene, camera)
+  }
+
+  private updateOverlay(camera: THREE.PerspectiveCamera) {
+    const isHome = (this.currentPage === 'home' && !isAppTransitioning.value) || (isAppTransitioning.value && this.runHomeDuringTransition)
+    const isSubPage = (this.currentPage !== 'home' && !isAppTransitioning.value) || (isAppTransitioning.value && this.runSubPageDuringTransition)
+    // During the camera-only part of a transition both text layers are absent.
+    if (!this.isMobileMode && !isHome && !isSubPage) return
 
     // 1. Full-screen silhouette pass for model avoidance.
     this.asciiRenderer.renderSilhouettePass(this.renderer, this.scene, camera, this.world.groundMirror)
@@ -421,12 +479,8 @@ export class SceneRuntime {
         this.world.model
       )
 
-      this.renderer.render(this.scene, camera)
       return
     }
-
-    const isHome = (this.currentPage === 'home' && !isAppTransitioning.value) || (isAppTransitioning.value && this.runHomeDuringTransition)
-    const isSubPage = (this.currentPage !== 'home' && !isAppTransitioning.value) || (isAppTransitioning.value && this.runSubPageDuringTransition)
 
     // 2. Home layout.
     if (isHome) {
@@ -478,24 +532,51 @@ export class SceneRuntime {
         )
       }
     }
+  }
 
-    this.renderer.render(this.scene, camera)
+  private onVisibilityChange = () => {
+    if (document.hidden) {
+      if (this.animationId !== null) cancelAnimationFrame(this.animationId)
+      this.animationId = null
+      this.clock.stop()
+    } else if (this.animationId === null) {
+      this.clock.start()
+      this.animate()
+    }
   }
 
   private onResize = () => {
+    const mobile = this.isMobileMode
+    if (mobile !== this.viewportMobile) {
+      this.viewportMobile = mobile
+      this.settleViewport('home')
+      setPage('home', true)
+    } else if (isAppTransitioning.value) {
+      this.settleViewport(mobile ? 'home' : activePage.value)
+    } else {
+      this.syncViewportMode()
+    }
+    if (this.resizeId !== null) return
+    this.resizeId = requestAnimationFrame(this.resizeViewport)
+  }
+
+  private resizeViewport = () => {
+    this.resizeId = null
     this.cameraManager.onResize()
     this.renderer.setPixelRatio(getRenderPixelRatio())
     this.renderer.setSize(window.innerWidth, window.innerHeight)
     this.world.onResize()
     this.asciiRenderer.onResize()
-    if (this.isMobileMode && activePage.value !== 'home') {
-      setPage('home', true)
-    }
-    this.syncViewportMode()
   }
 
   dispose() {
+    this.disposed = true
+    this.transitionVersion++
+    this.textAnimator.cancel()
+    isAppTransitioning.value = false
     if (this.animationId !== null) cancelAnimationFrame(this.animationId)
+    if (this.resizeId !== null) cancelAnimationFrame(this.resizeId)
+    document.removeEventListener('visibilitychange', this.onVisibilityChange)
     if (this.stopWatcher) this.stopWatcher()
     if (this.stopThemeWatcher) this.stopThemeWatcher()
     window.removeEventListener('resize', this.onResize)
@@ -511,4 +592,3 @@ export class SceneRuntime {
     console.error('Page transition failed', error)
   }
 }
-

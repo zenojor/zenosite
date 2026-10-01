@@ -1,8 +1,10 @@
-﻿import * as THREE from 'three'
+import * as THREE from 'three'
 import type { Reflector } from 'three/examples/jsm/objects/Reflector.js'
 import gsap from 'gsap'
+import { TransitionController } from './TransitionController'
 import { ASCII_CONFIG } from '@/config/ascii'
 import { asciiCellOverlapsObstacle } from './subPageObstacles'
+import { setText, setStyle } from './dom/updates'
 
 const MONO_RAMP = ' .`-_:,;^=+/|)\\!?0oOQ#%@'
 const CHAR_WIDTH = ASCII_CONFIG.charWidth
@@ -39,6 +41,13 @@ export interface SubPageAsciiOptions {
 }
 
 export class AsciiRenderer {
+  private readonly blackBackground = new THREE.Color(0x000000)
+  private readonly projectionTarget = new THREE.Vector3()
+  private readonly modelBounds = new THREE.Box3()
+  private readonly modelRowLeft = new Int16Array(256).fill(256)
+  private readonly modelRowRight = new Int16Array(256).fill(-1)
+  private readonly modelRowScanned = new Uint8Array(256)
+
   // Silhouette Mask
   private maskWidth = 256
   private maskHeight = 256
@@ -51,7 +60,6 @@ export class AsciiRenderer {
   private asciiRows: number
   private asciiRenderTarget: THREE.WebGLRenderTarget
   private asciiMaterial: THREE.MeshLambertMaterial
-  private readBuffer: Uint8Array
   private asciiContentBuffer: Uint8Array
 
   // Dedicated About ASCII (Full Screen)
@@ -68,7 +76,7 @@ export class AsciiRenderer {
    * During transitions, characters are revealed or hidden by fixed random thresholds.
    */
   private asciiVisibility = 1.0
-  private asciiVisibilityTween: gsap.core.Tween | null = null
+  private readonly asciiTransition = new TransitionController()
   /**
    * Fixed random thresholds for ASCII characters.
    * Regenerated only when an animation starts.
@@ -86,7 +94,6 @@ export class AsciiRenderer {
     this.asciiRows = Math.floor(window.innerHeight / CHAR_HEIGHT)
     this.asciiRenderTarget = new THREE.WebGLRenderTarget(this.asciiCols, this.asciiRows)
     this.asciiMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff })
-    this.readBuffer = new Uint8Array(this.asciiCols * this.asciiRows * 4)
     this.asciiContentBuffer = new Uint8Array(this.asciiCols * this.asciiRows * 4)
 
     // Full Screen About ASCII Initialize
@@ -113,20 +120,18 @@ export class AsciiRenderer {
     let modelMaxX = -1
     let modelMinX = this.maskWidth
     for (let my = wBottom; my <= wTop; my++) {
-      for (let mx = this.maskWidth - 1; mx >= 0; mx--) {
-        const i = (my * this.maskWidth + mx) * 4
-        if (this.maskBuffer[i]! > 0) {
-          if (mx > modelMaxX) modelMaxX = mx
-          break
-        }
+      if (!this.modelRowScanned[my]) {
+        let left = 0
+        let right = this.maskWidth - 1
+        const rowOffset = my * this.maskWidth * 4
+        while (left < this.maskWidth && this.maskBuffer[rowOffset + left * 4] === 0) left++
+        while (right >= 0 && this.maskBuffer[rowOffset + right * 4] === 0) right--
+        this.modelRowLeft[my] = left
+        this.modelRowRight[my] = right
+        this.modelRowScanned[my] = 1
       }
-      for (let mx = 0; mx < this.maskWidth; mx++) {
-        const i = (my * this.maskWidth + mx) * 4
-        if (this.maskBuffer[i]! > 0) {
-          if (mx < modelMinX) modelMinX = mx
-          break
-        }
-      }
+      modelMaxX = Math.max(modelMaxX, this.modelRowRight[my]!)
+      modelMinX = Math.min(modelMinX, this.modelRowLeft[my]!)
     }
 
     return {
@@ -146,7 +151,7 @@ export class AsciiRenderer {
     const prevOverride = scene.overrideMaterial
     const groundVis = groundMirror.visible
 
-    scene.background = new THREE.Color(0x000000)
+    scene.background = this.blackBackground
     scene.overrideMaterial = this.maskMaterial
     groundMirror.visible = false
 
@@ -154,6 +159,7 @@ export class AsciiRenderer {
     renderer.setRenderTarget(this.maskRenderTarget)
     renderer.render(scene, camera)
     renderer.readRenderTargetPixels(this.maskRenderTarget, 0, 0, this.maskWidth, this.maskHeight, this.maskBuffer)
+    this.modelRowScanned.fill(0)
 
     renderer.setRenderTarget(null)
     scene.background = prevBg
@@ -177,7 +183,7 @@ export class AsciiRenderer {
     const prevZoom = camera.zoom
     const prevAspect = camera.aspect
 
-    scene.background = new THREE.Color(0x000000)
+    scene.background = this.blackBackground
     scene.overrideMaterial = this.asciiMaterial
     groundMirror.visible = false
 
@@ -188,15 +194,15 @@ export class AsciiRenderer {
     camera.updateMatrixWorld()
     camera.updateProjectionMatrix()
 
-    const projectionTarget = new THREE.Vector3(0, 0, 0)
+    const projectionTarget = this.projectionTarget.set(0, 0, 0)
     // Subpages can track the model center; home keeps the world origin stable.
     if ((options.mode === 'about' || options.mode === 'subpage') && model) {
       model.updateMatrixWorld()
-      const box = new THREE.Box3().setFromObject(model)
+      const box = this.modelBounds.setFromObject(model)
       box.getCenter(projectionTarget)
     }
 
-    const modelProjected = projectionTarget.clone().project(camera)
+    const modelProjected = projectionTarget.project(camera)
     const pxX = (modelProjected.x * 0.5 + 0.5) * window.innerWidth
     const pxY = (1 - (modelProjected.y * 0.5 + 0.5)) * window.innerHeight
 
@@ -228,8 +234,6 @@ export class AsciiRenderer {
     const canvasWidth = this.asciiCols * CHAR_WIDTH
     const screenOffsetX = options.mode === 'home' ? 0 : Math.floor((window.innerWidth - canvasWidth) / 2)
 
-    const fullCols = Math.floor(window.innerWidth / CHAR_WIDTH)
-
     for (let r = this.asciiRows - 1; r >= 0; r--) {
       const lineTop = (this.asciiRows - 1 - r) * CHAR_HEIGHT
       const limits = this.getObstacleLimits(lineTop, CHAR_HEIGHT)
@@ -250,6 +254,16 @@ export class AsciiRenderer {
         // 1. 避让 3D 轮廓（Home 模式左侧逻辑）。
         if (options.mode === 'home' && c > limitCol) {
           break
+        }
+
+        const pixelIdx = (r * this.asciiCols + c) * 4
+        const brightness = (this.asciiContentBuffer[pixelIdx]! + this.asciiContentBuffer[pixelIdx + 1]! + this.asciiContentBuffer[pixelIdx + 2]!) / 3
+        const proportion = brightness / 255.0
+        const rampIdx = Math.min(MONO_RAMP.length - 1, Math.floor(proportion * MONO_RAMP.length))
+        let ch = MONO_RAMP[rampIdx]!
+        if (ch === ' ') {
+          rowChars += ' '
+          continue
         }
 
         // 2. 避让 3D 轮廓（About/Subpage 基于全屏 maskBuffer 的亮度）。
@@ -291,11 +305,6 @@ export class AsciiRenderer {
         }
 
         // 4. 将真实场景亮度转换为字符。
-        const pixelIdx = (r * this.asciiCols + c) * 4
-        const brightness = (this.asciiContentBuffer[pixelIdx]! + this.asciiContentBuffer[pixelIdx + 1]! + this.asciiContentBuffer[pixelIdx + 2]!) / 3
-        const proportion = brightness / 255.0
-        const rampIdx = Math.min(MONO_RAMP.length - 1, Math.floor(proportion * MONO_RAMP.length))
-        let ch = MONO_RAMP[rampIdx]!
 
         // Visibility effect.
         if (this.asciiVisibility < 1.0) {
@@ -336,9 +345,9 @@ export class AsciiRenderer {
       const data = asciiLinesData[i]
       const el = this.asciiLinesPool[i]
       if (el && data) {
-        el.textContent = data.text
-        el.style.left = `${data.x}px`
-        el.style.top = `${data.y}px`
+        setText(el, data.text)
+        setStyle(el, 'left', `${data.x}px`)
+        setStyle(el, 'top', `${data.y}px`)
       }
     }
 
@@ -370,7 +379,7 @@ export class AsciiRenderer {
     const prevZoom = camera.zoom
     const prevAspect = camera.aspect
 
-    scene.background = new THREE.Color(0x000000)
+    scene.background = this.blackBackground
     scene.overrideMaterial = this.asciiMaterial
     groundMirror.visible = false
 
@@ -378,14 +387,14 @@ export class AsciiRenderer {
     camera.updateProjectionMatrix()
 
     // 1. 获取追踪目标中心。
-    const projectionTarget = new THREE.Vector3(0, 0, 0)
+    const projectionTarget = this.projectionTarget.set(0, 0, 0)
     if ((options.trackModelCenter ?? true) && model) {
       model.updateMatrixWorld()
-      const box = new THREE.Box3().setFromObject(model)
+      const box = this.modelBounds.setFromObject(model)
       box.getCenter(projectionTarget)
     }
 
-    const modelProjected = projectionTarget.clone().project(camera)
+    const modelProjected = projectionTarget.project(camera)
     const pxX = (modelProjected.x * 0.5 + 0.5) * window.innerWidth
     const pxY = (1 - (modelProjected.y * 0.5 + 0.5)) * window.innerHeight
 
@@ -418,10 +427,25 @@ export class AsciiRenderer {
 
     for (let r = this.aboutAsciiRows - 1; r >= 0; r--) {
       const lineTop = (this.aboutAsciiRows - 1 - r) * CHAR_HEIGHT
+      const paddingX = options.domPaddingX ?? 4
+      const paddingY = options.domPaddingY ?? 1
+      const rowObstacles = obstacles.filter(rect =>
+        lineTop < rect.y + rect.height + paddingY && lineTop + CHAR_HEIGHT > rect.y - paddingY,
+      )
       let rowChars = ''
 
       for (let c = 0; c < this.aboutAsciiCols; c++) {
         const absoluteScreenX = c * CHAR_WIDTH
+
+        const pixelIdx = (r * this.aboutAsciiCols + c) * 4
+        const brightness = (this.aboutAsciiContentBuffer[pixelIdx]! + this.aboutAsciiContentBuffer[pixelIdx + 1]! + this.aboutAsciiContentBuffer[pixelIdx + 2]!) / 3
+        const proportion = brightness / 255.0
+        const rampIdx = Math.min(MONO_RAMP.length - 1, Math.floor(proportion * MONO_RAMP.length))
+        let ch = MONO_RAMP[rampIdx]!
+        if (ch === ' ') {
+          rowChars += ' '
+          continue
+        }
 
         // --- 核心避让逻辑 ---
 
@@ -456,9 +480,7 @@ export class AsciiRenderer {
 
         // 2. 避让 DOM 文本。
         let hitDom = false
-        const paddingX = options.domPaddingX ?? 4
-        const paddingY = options.domPaddingY ?? 1
-        for (const rect of obstacles) {
+        for (const rect of rowObstacles) {
           if (asciiCellOverlapsObstacle(
             absoluteScreenX, lineTop, CHAR_WIDTH, CHAR_HEIGHT, rect, paddingX, paddingY,
           )) {
@@ -472,11 +494,6 @@ export class AsciiRenderer {
         }
 
         // 3. 生成字符。
-        const pixelIdx = (r * this.aboutAsciiCols + c) * 4
-        const brightness = (this.aboutAsciiContentBuffer[pixelIdx]! + this.aboutAsciiContentBuffer[pixelIdx + 1]! + this.aboutAsciiContentBuffer[pixelIdx + 2]!) / 3
-        const proportion = brightness / 255.0
-        const rampIdx = Math.min(MONO_RAMP.length - 1, Math.floor(proportion * MONO_RAMP.length))
-        let ch = MONO_RAMP[rampIdx]!
 
         if (this.asciiVisibility < 1.0) {
           const key = r * 20000 + c // 放大 key，避免碰撞。
@@ -515,9 +532,9 @@ export class AsciiRenderer {
       const data = asciiLinesData[i]
       const el = this.asciiLinesPool[i]
       if (el && data) {
-        el.textContent = data.text
-        el.style.left = `${data.x}px`
-        el.style.top = `${data.y}px`
+        setText(el, data.text)
+        setStyle(el, 'left', `${data.x}px`)
+        setStyle(el, 'top', `${data.y}px`)
       }
     }
 
@@ -558,16 +575,16 @@ export class AsciiRenderer {
     this.killAsciiTween()
     // Regenerate thresholds at animation start.
     this.asciiCharThresholds.clear()
-    return new Promise((resolve) => {
-      this.asciiVisibilityTween = gsap.to(this, {
+    return new Promise((resolve, reject) => {
+      const tween = gsap.to(this, {
         asciiVisibility: 0,
         duration,
         ease: 'power3.in',
         onComplete: () => {
-          this.asciiVisibilityTween = null
-          resolve()
+          this.asciiTransition.complete()
         },
       })
+      this.asciiTransition.track([tween], resolve, reject)
     })
   }
 
@@ -580,16 +597,16 @@ export class AsciiRenderer {
     this.asciiVisibility = 0
     // Regenerate thresholds at animation start.
     this.asciiCharThresholds.clear()
-    return new Promise((resolve) => {
-      this.asciiVisibilityTween = gsap.to(this, {
+    return new Promise((resolve, reject) => {
+      const tween = gsap.to(this, {
         asciiVisibility: 1,
         duration,
         ease: 'power3.out',
         onComplete: () => {
-          this.asciiVisibilityTween = null
-          resolve()
+          this.asciiTransition.complete()
         },
       })
+      this.asciiTransition.track([tween], resolve, reject)
     })
   }
 
@@ -600,10 +617,7 @@ export class AsciiRenderer {
   }
 
   private killAsciiTween() {
-    if (this.asciiVisibilityTween) {
-      this.asciiVisibilityTween.kill()
-      this.asciiVisibilityTween = null
-    }
+    this.asciiTransition.cancel()
   }
 
   /** Resize ASCII render targets after viewport changes. */
@@ -611,7 +625,6 @@ export class AsciiRenderer {
     this.asciiCols = Math.floor((window.innerWidth / 2) / CHAR_WIDTH)
     this.asciiRows = Math.floor(window.innerHeight / CHAR_HEIGHT)
     this.asciiRenderTarget.setSize(this.asciiCols, this.asciiRows)
-    this.readBuffer = new Uint8Array(this.asciiCols * this.asciiRows * 4)
     this.asciiContentBuffer = new Uint8Array(this.asciiCols * this.asciiRows * 4)
 
     const fullCols = Math.floor(window.innerWidth / CHAR_WIDTH)
@@ -622,6 +635,7 @@ export class AsciiRenderer {
   }
 
   dispose() {
+    this.killAsciiTween()
     this.maskRenderTarget.dispose()
     this.maskMaterial.dispose()
     this.asciiRenderTarget.dispose()
