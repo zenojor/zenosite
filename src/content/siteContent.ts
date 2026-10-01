@@ -95,7 +95,7 @@ export const SITE_CONTENT: Record<Exclude<PageName, 'home'>, SubPageContent> = {
       '|   |___ |   _   ||   |    |   |___ |   |  | ||   | |   |___ | | |   ||     |_ |   |___ ',
       '|_______||__| |__||___|    |_______||___|  |_||___| |_______||_|  |__||_______||_______|',
       '',
-      '> Still looking for an internship!',
+      '> Most recently a full-stack TypeScript developer contracted to ByteDance via Kingswork',
     ],
   },
   projects: {

@@ -2,6 +2,7 @@
 import type { Reflector } from 'three/examples/jsm/objects/Reflector.js'
 import gsap from 'gsap'
 import { ASCII_CONFIG } from '@/config/ascii'
+import { asciiCellOverlapsObstacle } from './subPageObstacles'
 
 const MONO_RAMP = ' .`-_:,;^=+/|)\\!?0oOQ#%@'
 const CHAR_WIDTH = ASCII_CONFIG.charWidth
@@ -455,17 +456,12 @@ export class AsciiRenderer {
 
         // 2. 避让 DOM 文本。
         let hitDom = false
-        const paddingX = options.domPaddingX ?? 12
-        const paddingY = options.domPaddingY ?? 2
+        const paddingX = options.domPaddingX ?? 4
+        const paddingY = options.domPaddingY ?? 1
         for (const rect of obstacles) {
-          const charCenterX = absoluteScreenX + CHAR_WIDTH / 2
-          const charCenterY = lineTop + CHAR_HEIGHT / 2
-          if (
-            charCenterX > rect.x - paddingX &&
-            charCenterX < rect.x + rect.width + paddingX &&
-            charCenterY > rect.y - paddingY &&
-            charCenterY < rect.y + rect.height + paddingY
-          ) {
+          if (asciiCellOverlapsObstacle(
+            absoluteScreenX, lineTop, CHAR_WIDTH, CHAR_HEIGHT, rect, paddingX, paddingY,
+          )) {
             hitDom = true
             break
           }

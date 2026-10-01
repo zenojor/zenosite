@@ -8,13 +8,14 @@ import type { AsciiRenderer } from './AsciiRenderer'
 import { createBadgeImage, createSocialBadgeLink, setBadgeImageHeights } from './dom/badgeElements'
 import { CopyToast } from './dom/copyToast'
 import { isSubPageObstacleLine } from './subPageObstacles'
+import { completeSentencePrefix } from './homeBodyFlow'
 
 export class SceneLayout {
   // ========== Home Dynamic Layout ==========
   private readonly BODY_COPY: string
   private readonly FONT = '18px "Courier New", Courier, monospace'
   private preparedBody: PreparedTextWithSegments
-  private currentBodyRepeat = 0
+  private bodyViewportKey = ''
 
   private readonly TITLE_LINES = [
     ' _______  _______  __    _  _______        ___   _______         _______        ______   _______  __   __ ',
@@ -71,7 +72,6 @@ export class SceneLayout {
   constructor() {
     this.BODY_COPY = "My name is zeno, and this is my personal website. I used three.js and pretext to build this website, just wanna let u know if u are interested in it! I'm currently learning the front-end tech stack and aspire to become a front-end engineer! "
     this.preparedBody = prepareWithSegments('', this.FONT)
-    this.updatePreparedBody()
     this.TITLE_LETTER_SPACINGS = this.TITLE_LINES.map(() => '0px')
 
     const textMaskCanvas = document.createElement('canvas')
@@ -82,12 +82,27 @@ export class SceneLayout {
 
   // ========== Home layout ==========
 
-  private updatePreparedBody() {
-    const nextRepeat = responsive(HOME_LAYOUT.body.copyRepeat)
-    if (nextRepeat === this.currentBodyRepeat) return
+  private updatePreparedBody(width: number, height: number, glyphWidth: number) {
+    const key = `${window.innerWidth}:${window.innerHeight}:${width}:${height}:${glyphWidth}`
+    if (key === this.bodyViewportKey) return
+    this.bodyViewportKey = key
 
-    this.currentBodyRepeat = nextRepeat
-    this.preparedBody = prepareWithSegments(this.BODY_COPY.repeat(nextRepeat), this.FONT)
+    // Choose the copy once per viewport, independently of the moving model.
+    // Reserve two rows and 10% of the width for subsequent silhouette reflow.
+    const columns = Math.max(0, Math.floor(width / (glyphWidth + HOME_LAYOUT.body.letterSpacing)))
+    const rows = Math.max(0, Math.floor(height / HOME_LAYOUT.body.lineHeight) - 2)
+    const repeats = Math.max(1, Math.ceil((columns + 1) * rows / this.BODY_COPY.length) + 1)
+    const copy = this.BODY_COPY.repeat(repeats)
+    const prepared = prepareWithSegments(copy, this.FONT)
+    const measureScale = (glyphWidth + HOME_LAYOUT.body.letterSpacing) / glyphWidth
+    let cursor: LayoutCursor = { segmentIndex: 0, graphemeIndex: 0 }
+    for (let row = 0; row < rows; row++) {
+      const line = layoutNextLine(prepared, cursor, Math.max(0, width * 0.9) / measureScale)
+      if (!line) break
+      cursor = line.end
+    }
+    const consumed = prepared.segments.slice(0, cursor.segmentIndex).join('').length + cursor.graphemeIndex
+    this.preparedBody = prepareWithSegments(completeSentencePrefix(copy, consumed), this.FONT)
   }
 
   /** 对字符串应用可见度效果，使用缓存的固定阈值。 */
@@ -117,20 +132,21 @@ export class SceneLayout {
     navContainer: HTMLDivElement | null,
     asciiRenderer: AsciiRenderer,
   ) {
-    this.updatePreparedBody()
-
     // 1. Title Dimensions Update
     const titleRightSpace = responsive(HOME_LAYOUT.title.rightSpace)
-    const maxLineLen = Math.max(...this.TITLE_LINES.map((l) => l.length))
     const availableWidth = Math.max(200, window.innerWidth / 2 - titleRightSpace - 20)
-    const targetFontSize = Math.max(HOME_LAYOUT.title.minFontSize, Math.min(HOME_LAYOUT.title.maxFontSize, Math.floor(availableWidth / (maxLineLen * 0.6))))
+    this.textMaskCtx.font = `${HOME_LAYOUT.title.referenceFontSize}px ${this.HEADLINE_FONT_FAMILY}`
+    this.textMaskCtx.letterSpacing = '0px'
+    const titleWidth = Math.max(...this.TITLE_LINES.map((line) => this.textMaskCtx.measureText(line).width))
+    // Fit the right-hand column continuously, including on larger screens.
+    const targetFontSize = HOME_LAYOUT.title.referenceFontSize * availableWidth / titleWidth
     if (this.currentTitleFontSize !== targetFontSize || window.innerWidth !== this.lastWindowWidth) {
       this.currentTitleFontSize = targetFontSize
       this.lastWindowWidth = window.innerWidth
     }
     this.titleLineHeight = this.currentTitleFontSize
 
-    // 2. Setup Title DOM Blocks and Measure Bounding Boxes
+    // 2. Reserve the full title height before laying out the body.
     while (this.titleLinesPool.length < this.TITLE_LINES.length) {
       const el = document.createElement('div')
       el.className = 'dynamic-title'
@@ -143,10 +159,7 @@ export class SceneLayout {
       this.titleLinesPool.push(el)
     }
 
-    this.textMaskCtx.font = `${this.currentTitleFontSize}px ${this.HEADLINE_FONT_FAMILY}`
-
     let currentTitleY = HOME_LAYOUT.title.startY
-    const titleRects: { top: number; bottom: number; left: number; right: number }[] = []
 
     for (let i = 0; i < this.TITLE_LINES.length; i++) {
       const el = this.titleLinesPool[i]!
@@ -159,50 +172,47 @@ export class SceneLayout {
       el.style.lineHeight = `${this.titleLineHeight}px`
       el.style.letterSpacing = spacing
 
-      this.textMaskCtx.letterSpacing = spacing
-      const metrics = this.textMaskCtx.measureText(this.TITLE_LINES[i]!)
-      const textWidth = metrics.width
-      titleRects.push({
-        top: currentTitleY,
-        bottom: currentTitleY + this.titleLineHeight,
-        left: window.innerWidth - titleRightSpace - textWidth,
-        right: window.innerWidth - titleRightSpace,
-      })
-
       currentTitleY += this.titleLineHeight
     }
 
     // 3. Layout Body dynamically dodging boundaries
+    const lineHeight = HOME_LAYOUT.body.lineHeight
+    // Use the same row grid as the left ASCII, while keeping the title gap.
+    const bodyTop = Math.ceil((currentTitleY + HOME_LAYOUT.body.titleGap) / lineHeight) * lineHeight
+    const bodyBottom = Math.min(window.innerHeight * HOME_LAYOUT.body.bottomRatio, window.innerHeight - HOME_LAYOUT.body.bottomPadding)
     const region = {
       x: window.innerWidth / 2 + HOME_LAYOUT.body.xOffset,
-      y: HOME_LAYOUT.body.yStart,
+      y: bodyTop,
       width: Math.max(0, window.innerWidth / 2 - HOME_LAYOUT.body.rightPadding),
-      height: Math.max(0, window.innerHeight - HOME_LAYOUT.body.bottomPadding),
+      height: Math.max(0, bodyBottom - bodyTop),
     }
-    const lineHeight = HOME_LAYOUT.body.lineHeight
     let cursor: LayoutCursor = { segmentIndex: 0, graphemeIndex: 0 }
     let lineTop = region.y
     const linesData = []
 
-    while (lineTop + lineHeight <= region.y + region.height) {
+    this.textMaskCtx.font = this.FONT
+    this.textMaskCtx.letterSpacing = '0px'
+    const glyphWidth = this.textMaskCtx.measureText('M').width
+    this.updatePreparedBody(window.innerWidth - titleRightSpace - 20 - region.x, region.height, glyphWidth)
+    // Pretext 0.0.3 measures without CSS letter spacing. Reduce its available
+    // width to account for the 1px spacing on every monospace body character.
+    const measureScale = (glyphWidth + HOME_LAYOUT.body.letterSpacing) / glyphWidth
+
+    // The 70% target selects the copy; the space above navigation is available
+    // for reflow, so a completed last sentence is never clipped at that target.
+    const flowBottom = window.innerHeight - HOME_LAYOUT.body.bottomPadding
+    while (lineTop + lineHeight <= flowBottom) {
       let slotLeft = region.x
-      let currentSlotRight = window.innerWidth - titleRightSpace - 20
+      const currentSlotRight = window.innerWidth - titleRightSpace - 20
 
       const limits = asciiRenderer.getObstacleLimits(lineTop, lineHeight)
       if (limits.modelRight > 0) {
         slotLeft = Math.max(slotLeft, limits.modelRight + HOME_LAYOUT.body.modelDodgePadding)
       }
 
-      // Dodge Title Bounding Boxes
-      for (const tb of titleRects) {
-        if (lineTop + lineHeight > tb.top && lineTop < tb.bottom) {
-          currentSlotRight = Math.min(currentSlotRight, tb.left - HOME_LAYOUT.body.titleDodgePadding)
-        }
-      }
-
       const width = currentSlotRight - slotLeft
-      if (width > 0) {
-        const line = layoutNextLine(this.preparedBody, cursor, width)
+      if (width >= glyphWidth + HOME_LAYOUT.body.letterSpacing) {
+        const line = layoutNextLine(this.preparedBody, cursor, width / measureScale)
         if (line !== null) {
           linesData.push({ x: slotLeft, y: lineTop, text: line.text })
           cursor = line.end
@@ -237,7 +247,7 @@ export class SceneLayout {
       el.style.font = this.FONT
       el.style.lineHeight = `${lineHeight}px`
       el.style.color = 'var(--text-muted-color)'
-      el.style.letterSpacing = '1px'
+      el.style.letterSpacing = `${HOME_LAYOUT.body.letterSpacing}px`
       el.style.pointerEvents = 'none'
       el.style.whiteSpace = 'pre'
       dynamicLayoutContainer.appendChild(el)
@@ -740,6 +750,7 @@ export class SceneLayout {
 
   /** 清除主页 DOM 元素。 */
   clearHome() {
+    this.bodyViewportKey = ''
     for (const el of this.titleLinesPool) {
       el.remove()
     }
@@ -843,4 +854,3 @@ export class SceneLayout {
     }
   }
 }
-

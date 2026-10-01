@@ -435,6 +435,12 @@ export class SceneRuntime {
       }
     }
 
+    // Update subpage positions before measuring obstacles for this frame.
+    if (this.currentPage !== 'home' && !isAppTransitioning.value) {
+      const p = this.currentPage as Exclude<PageName, 'home'>
+      this.sceneLayout.updateSubPage(p, this.domRefs.dynamicLayoutContainer, this.asciiRenderer)
+    }
+
     // ASCII rendering: home uses half-screen, subpages use full-screen pass.
     if (isHome) {
       if (this.domRefs.asciiContainer) {
@@ -471,12 +477,6 @@ export class SceneRuntime {
           this.world.model
         )
       }
-    }
-
-    // 4. Update subpage layout obstacles.
-    if (this.currentPage !== 'home' && !isAppTransitioning.value) {
-      const p = this.currentPage as Exclude<PageName, 'home'>
-      this.sceneLayout.updateSubPage(p, this.domRefs.dynamicLayoutContainer, this.asciiRenderer)
     }
 
     this.renderer.render(this.scene, camera)

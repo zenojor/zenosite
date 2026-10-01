@@ -26,8 +26,8 @@ export const ASCII_CONFIG = {
       overlayOffsetY: { desktop: 0, mobile: 0 },
       verticalShiftFactor: 0.15,
       modelSearchRadius: 2,
-      domPaddingX: 12,
-      domPaddingY: 2,
+      domPaddingX: 4,
+      domPaddingY: 1,
     },
     experience: {
       zoom: 2.0,
@@ -35,8 +35,8 @@ export const ASCII_CONFIG = {
       overlayOffsetY: { desktop: 40, mobile: 8 },
       verticalShiftFactor: 0.15,
       modelSearchRadius: 2,
-      domPaddingX: 12,
-      domPaddingY: 2,
+      domPaddingX: 4,
+      domPaddingY: 1,
     },
     projects: {
       zoom: 2.0,
@@ -44,8 +44,8 @@ export const ASCII_CONFIG = {
       overlayOffsetY: { desktop: 30, mobile: 0 },
       verticalShiftFactor: 0.15,
       modelSearchRadius: 2,
-      domPaddingX: 12,
-      domPaddingY: 2,
+      domPaddingX: 4,
+      domPaddingY: 1,
     },
     contact: {
       zoom: 2.0,
@@ -53,8 +53,8 @@ export const ASCII_CONFIG = {
       overlayOffsetY: { desktop: 30, mobile: 0 },
       verticalShiftFactor: 0.15,
       modelSearchRadius: 2,
-      domPaddingX: 12,
-      domPaddingY: 2,
+      domPaddingX: 4,
+      domPaddingY: 1,
     },
   } as Record<
     Exclude<PageName, 'home'>,
