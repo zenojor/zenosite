@@ -5,6 +5,7 @@ import { World } from './World'
 import { AsciiRenderer } from './AsciiRenderer'
 import { SceneLayout } from './SceneLayout'
 import { TextAnimator } from './TextAnimator'
+import { HomeIntro } from './HomeIntro'
 import { ASCII_CONFIG } from '@/config/ascii'
 import { getRenderPixelRatio } from '@/config/rendering'
 import { isMobileViewport, responsive } from '@/config/breakpoints'
@@ -47,6 +48,7 @@ export class SceneRuntime {
   private stopThemeWatcher: (() => void) | null = null
   private pendingPage: PageName | null = null
   private hasPlayedInitialTextIntro = false
+  private homeIntro: HomeIntro | null = null
 
   private get isMobileMode() {
     return isMobileViewport()
@@ -121,12 +123,6 @@ export class SceneRuntime {
     if (this.hasPlayedInitialTextIntro) return
     this.hasPlayedInitialTextIntro = true
 
-    if (this.isMobileMode) {
-      this.asciiRenderer.setAsciiVisibility(0)
-      void this.playInitialAsciiIntro(1.0).catch(this.handleTransitionError)
-      return
-    }
-
     if (this.currentPage === 'home') {
       void this.playInitialHomeIntro()
       return
@@ -140,26 +136,26 @@ export class SceneRuntime {
     isAppTransitioning.value = true
     this.runHomeDuringTransition = true
 
-    const navSpans = this.getNavElements()
-    const navTexts = this.getNavTexts()
-
-    this.sceneLayout.setHomeVisibility(0)
-    this.asciiRenderer.setAsciiVisibility(0)
-    this.prepareTextMaterialize(navSpans, navTexts)
+    const mobileContact = this.domRefs.canvas.parentElement?.querySelector<HTMLElement>('.wechat-badge')
+    const controls = this.isMobileMode ? (mobileContact ? [mobileContact] : []) : this.getNavElements()
+    const intro = new HomeIntro(
+      this.cameraManager, this.asciiRenderer, this.sceneLayout,
+      this.domRefs.canvas, this.domRefs.asciiContainer, controls, this.isMobileMode,
+    )
+    this.homeIntro = intro
+    intro.prepare()
 
     try {
       await this.world.ready
       if (!this.isCurrentTransition(version)) return
-      await Promise.all([
-        this.sceneLayout.animateHomeMaterialize(1.0),
-        this.asciiRenderer.animateAsciiMaterialize(1.0),
-        this.textAnimator.materialize(navSpans, navTexts, 0.8),
-      ])
+      await intro.play(window.matchMedia('(prefers-reduced-motion: reduce)').matches)
       if (!this.isCurrentTransition(version)) return
     } catch (error) {
       this.handleTransitionError(error)
     } finally {
       if (this.isCurrentTransition(version)) {
+        intro.cancel()
+        this.homeIntro = null
         this.runHomeDuringTransition = false
         this.finishIntroTransition()
       }
@@ -205,18 +201,6 @@ export class SceneRuntime {
         this.runSubPageDuringTransition = false
         this.finishIntroTransition()
       }
-    }
-  }
-
-  private async playInitialAsciiIntro(duration = 1.0) {
-    const version = ++this.transitionVersion
-    isAppTransitioning.value = true
-    try {
-      await this.world.ready
-      if (!this.isCurrentTransition(version)) return
-      await this.asciiRenderer.animateAsciiMaterialize(duration)
-    } finally {
-      if (this.isCurrentTransition(version)) this.finishIntroTransition()
     }
   }
 
@@ -273,6 +257,8 @@ export class SceneRuntime {
   private settleViewport(page: PageName) {
     // Invalidate continuations before rejecting any pending animation promises.
     this.transitionVersion++
+    this.homeIntro?.cancel()
+    this.homeIntro = null
     this.textAnimator.cancel()
     this.sceneLayout.setHomeVisibility(1)
     this.asciiRenderer.setAsciiVisibility(1)
@@ -535,6 +521,7 @@ export class SceneRuntime {
   }
 
   private onVisibilityChange = () => {
+    this.homeIntro?.setPaused(document.hidden)
     if (document.hidden) {
       if (this.animationId !== null) cancelAnimationFrame(this.animationId)
       this.animationId = null
@@ -572,6 +559,8 @@ export class SceneRuntime {
   dispose() {
     this.disposed = true
     this.transitionVersion++
+    this.homeIntro?.cancel()
+    this.homeIntro = null
     this.textAnimator.cancel()
     isAppTransitioning.value = false
     if (this.animationId !== null) cancelAnimationFrame(this.animationId)

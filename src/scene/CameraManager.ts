@@ -4,7 +4,7 @@ import { CAMERA_CONFIG } from '@/config/camera'
 import type { PageName } from '@/router/pages'
 import { TransitionController } from './TransitionController'
 
-type CameraMode = 'orbit' | 'transitioning' | 'fixed'
+type CameraMode = 'orbit' | 'intro' | 'transitioning' | 'fixed'
 
 interface CameraViewDef {
   position: THREE.Vector3
@@ -28,6 +28,7 @@ export class CameraManager {
   private isDragging = false
   private previousX = 0
   private velocity = 0
+  private introMobile = false
 
   // Fixed 模式：当前 lookAt 目标，用于平滑过渡。
   private currentLookAt = new THREE.Vector3(0, 0, 0)
@@ -76,6 +77,39 @@ export class CameraManager {
 
   private onPointerUp() {
     this.isDragging = false
+  }
+
+  /** A short polar arc, rather than a straight slide through the scene. */
+  prepareHomeIntro(mobile: boolean) {
+    this.transitionController.cancel()
+    this.mode = 'intro'
+    this.introMobile = mobile
+    this.isDragging = false
+    this.velocity = 0
+    this.canvas.style.cursor = 'default'
+    this.setHomeIntroProgress(0)
+  }
+
+  setHomeIntroProgress(progress: number) {
+    const remaining = 1 - progress
+    const arc = this.introMobile ? 0.12 : 0.35
+    // Align the landing view with the model's authored forward direction.
+    this.angle = -0.014 - arc * remaining
+    const distance = this.cameraDistance * (1 - (this.introMobile ? 0.03 : 0.09) * remaining)
+    this.camera.position.set(
+      Math.cos(this.angle) * distance,
+      this.cameraHeight + 0.45 * remaining,
+      Math.sin(this.angle) * distance,
+    )
+    this.currentLookAt.set(0, 0.08 * remaining, 0.4 * remaining)
+    this.camera.lookAt(this.currentLookAt)
+  }
+
+  finishHomeIntro() {
+    this.setHomeIntroProgress(1)
+    this.mode = 'orbit'
+    this.velocity = CAMERA_CONFIG.orbit.defaultVelocity
+    this.canvas.style.cursor = 'grab'
   }
 
   /**
@@ -235,4 +269,3 @@ export class CameraManager {
     window.removeEventListener('pointercancel', this.onPointerUpBound)
   }
 }
-

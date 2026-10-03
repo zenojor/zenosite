@@ -93,10 +93,18 @@
       const canvas = doc().querySelector('canvas')
       const bounds = canvas.getBoundingClientRect()
       check(bounds.width === iframe.contentWindow.innerWidth && bounds.height === iframe.contentWindow.innerHeight, 'canvas retained old dimensions')
+      check(Number(iframe.contentWindow.getComputedStyle(canvas).opacity) === 1, 'model stayed transparent after intro')
+      check(Number(iframe.contentWindow.getComputedStyle(doc().querySelector('.ascii-overlay')).opacity) === 1, 'ASCII intro opacity did not recover')
+      check([...buttons, doc().querySelector('.wechat-badge')].filter(Boolean).every(el => iframe.contentWindow.getComputedStyle(el).clipPath === 'none'), 'intro left a contact or navigation control clipped')
       if (mobile) {
         check(subLines.length === 0 && !homeText.trim(), 'desktop text leaked into mobile scene')
+        check(visible(doc().querySelector('.wechat-badge img')), 'character reveal replaced the mobile badge image')
+        check(iframe.contentWindow.getComputedStyle(doc().querySelector('.wechat-badge img')).opacity === '1', 'mobile badge stayed faded')
+        check(doc().querySelector('.wechat-badge span')?.textContent === 'zenoknowda', 'mobile contact text did not recover')
+        check(iframe.contentWindow.getComputedStyle(doc().querySelector('.wechat-badge')).pointerEvents !== 'none', 'mobile contact stayed locked')
       } else if (page === 'home') {
         check(buttons.length === 4 && buttons.every((el, i) => visible(el) && !el.disabled && el.textContent === names[i]), 'navigation button text/display did not recover')
+        check(buttons.every(el => iframe.contentWindow.getComputedStyle(el).pointerEvents !== 'none'), 'navigation stayed unclickable')
         check(homeText.includes('My name is zeno'), 'home body visibility did not recover')
         check([...doc().querySelectorAll('.dynamic-title')].some(el => el.textContent.trim()), 'home title visibility did not recover')
         check(subLines.length === 0, 'stale subpage content remained')
@@ -124,6 +132,48 @@
     }
     const cases = []
     const add = (name, run) => cases.push({ name, run })
+
+    add('首页首屏保留推进节奏，导航逐字刷新且无蒙版裁剪', async () => {
+      await load()
+      const titles = [...doc().querySelectorAll('.dynamic-title')].map(el => el.textContent)
+      await load('home', 1280, 720, false)
+      let titleSampled = false
+      let navSampled = false
+      let maskSampled = false
+      let unorderedCharacters = false
+      const partialNavFrames = []
+      const isWholeCharacterPrefix = (text, target) => {
+        const count = text.trimEnd().length
+        return text.length === target.length && text === target.slice(0, count) + ' '.repeat(target.length - count)
+      }
+      const sample = () => {
+        for (const element of doc().querySelectorAll('.ascii-overlay,.dynamic-layout,.dynamic-title,.dynamic-line,[data-page-nav]')) {
+          const style = iframe.contentWindow.getComputedStyle(element)
+          maskSampled ||= style.clipPath !== 'none' || style.maskImage !== 'none'
+        }
+        const titleTexts = [...doc().querySelectorAll('.dynamic-title')].map(el => el.textContent)
+        titleSampled ||= titleTexts.some((text, i) => text.trim() && text !== titles[i])
+        unorderedCharacters ||= titleTexts.some((text, i) => !isWholeCharacterPrefix(text, titles[i] || ''))
+        const navTexts = [...doc().querySelectorAll('[data-page-nav]')].map(el => el.textContent)
+        navSampled ||= navTexts.some((text, i) => text.trim() && text !== names[i])
+        unorderedCharacters ||= navTexts.some((text, i) => !isWholeCharacterPrefix(text, names[i]))
+        if (partialNavFrames.length < 5 && navTexts.some((text, i) => text.trim() && text !== names[i])) partialNavFrames.push(navTexts)
+      }
+      const observer = new MutationObserver(sample)
+      observer.observe(doc().querySelector('.scene-container'), { childList: true, subtree: true, characterData: true })
+      try {
+        await waitReady(); sample()
+        check(!maskSampled, 'intro applied a clipping or mask reveal')
+        check(!unorderedCharacters, 'intro changed the original left-to-right character progression')
+        if (!iframe.contentWindow.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          check(titleSampled, 'title did not show a partial character refresh')
+          check(navSampled, `navigation did not show a partial character refresh: ${JSON.stringify(partialNavFrames)}`)
+        }
+        assertScene('home')
+      } finally {
+        observer.disconnect()
+      }
+    })
 
     add('首页连续三次桌面→手机→桌面', async () => {
       await load()
@@ -313,6 +363,10 @@
     }
     const selectedCases = new URLSearchParams(location.search).get('case') === 'short'
       ? cases.filter(test => test.name.startsWith('1920 宽'))
+      : new URLSearchParams(location.search).get('case') === 'characters'
+      ? cases.filter(test => test.name.includes('逐字') || test.name.startsWith('取消文字/徽章'))
+      : new URLSearchParams(location.search).get('suite') === 'intro'
+      ? cases.filter(test => test.name.includes('首屏') || test.name.includes('首次') || test.name.startsWith('首页连续') || test.name.startsWith('手机 320'))
       : new URLSearchParams(location.search).get('suite') === 'extra'
       ? cases.filter((test, index) => index >= baselineCount || test.name.includes('宽度及短窗口'))
       : cases

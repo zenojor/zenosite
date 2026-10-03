@@ -5,11 +5,13 @@ import { TransitionController } from './TransitionController'
 import { ASCII_CONFIG } from '@/config/ascii'
 import { asciiCellOverlapsObstacle } from './subPageObstacles'
 import { setText, setStyle } from './dom/updates'
+import type { HomeIntroState } from './HomeIntro'
 
 const MONO_RAMP = ' .`-_:,;^=+/|)\\!?0oOQ#%@'
 const CHAR_WIDTH = ASCII_CONFIG.charWidth
 const CHAR_HEIGHT = ASCII_CONFIG.charHeight
 const RANDOM_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*!?/\\|=+-_.:;,^~'
+const CONTOUR_NEIGHBORS = [[-1, 0], [1, 0], [0, -1], [0, 1]] as const
 
 export interface ObstacleLimits {
   modelRight: number
@@ -76,6 +78,7 @@ export class AsciiRenderer {
    * During transitions, characters are revealed or hidden by fixed random thresholds.
    */
   private asciiVisibility = 1.0
+  private homeIntro: HomeIntroState | null = null
   private readonly asciiTransition = new TransitionController()
   /**
    * Fixed random thresholds for ASCII characters.
@@ -107,6 +110,30 @@ export class AsciiRenderer {
   /** Set additional DOM obstacle rectangles for ASCII avoidance. */
   setDomObstacles(rects: Rect[]) {
     this.domObstacles = rects
+  }
+
+  setHomeIntro(state: HomeIntroState | null) {
+    this.homeIntro = state
+  }
+
+  /** Draw the actual silhouette edge first, then fill its character field. */
+  private revealIntroCharacter(char: string, pixels: Uint8Array, col: number, row: number, cols: number, rows: number): string {
+    const intro = this.homeIntro
+    if (!intro || intro.fill >= 1) return char
+    const y = 1 - row / Math.max(1, rows - 1)
+    const x = col / Math.max(1, cols - 1)
+    const fillThreshold = 0.04 + 0.86 * (y * 0.72 + Math.abs(x - 0.5) * 0.56)
+    if (intro.fill > fillThreshold) return char
+    if (intro.contour < 0.04 + 0.86 * (y * 0.8 + x * 0.2)) return ' '
+
+    for (const [dx, dy] of CONTOUR_NEIGHBORS) {
+      const neighborX = col + dx
+      const neighborY = row + dy
+      if (neighborX < 0 || neighborX >= cols || neighborY < 0 || neighborY >= rows) return char
+      const index = (neighborY * cols + neighborX) * 4
+      if (pixels[index]! + pixels[index + 1]! + pixels[index + 2]! < 34) return char
+    }
+    return ' '
   }
 
   /** Shared Helper: CPU limits scanner from GPU mask buffer */
@@ -307,7 +334,9 @@ export class AsciiRenderer {
         // 4. 将真实场景亮度转换为字符。
 
         // Visibility effect.
-        if (this.asciiVisibility < 1.0) {
+        if (this.homeIntro) {
+          ch = this.revealIntroCharacter(ch, this.asciiContentBuffer, c, r, this.asciiCols, this.asciiRows)
+        } else if (this.asciiVisibility < 1.0) {
           const key = r * 10000 + c
           let threshold = this.asciiCharThresholds.get(key)
           if (threshold === undefined) {
@@ -495,7 +524,9 @@ export class AsciiRenderer {
 
         // 3. 生成字符。
 
-        if (this.asciiVisibility < 1.0) {
+        if (this.homeIntro) {
+          ch = this.revealIntroCharacter(ch, this.aboutAsciiContentBuffer, c, r, this.aboutAsciiCols, this.aboutAsciiRows)
+        } else if (this.asciiVisibility < 1.0) {
           const key = r * 20000 + c // 放大 key，避免碰撞。
           let threshold = this.asciiCharThresholds.get(key)
           if (threshold === undefined) {
@@ -643,4 +674,3 @@ export class AsciiRenderer {
     this.asciiMaterial.dispose()
   }
 }
-

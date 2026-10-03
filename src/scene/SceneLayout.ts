@@ -12,6 +12,7 @@ import { CopyToast } from './dom/copyToast'
 import { isSubPageObstacleLine } from './subPageObstacles'
 import { completeSentencePrefix } from './homeBodyFlow'
 import { setText, setStyle } from './dom/updates'
+import type { HomeIntroState } from './HomeIntro'
 
 export class SceneLayout {
   // ========== Home Dynamic Layout ==========
@@ -68,6 +69,7 @@ export class SceneLayout {
    * 转场时由 GSAP 驱动，并在每帧 update() 中应用。
    */
   private homeVisibility = 1.0
+  private homeIntro: HomeIntroState | null = null
   private readonly homeTransition = new TransitionController()
 
   /**
@@ -149,6 +151,19 @@ export class SceneLayout {
     return result
   }
 
+  setHomeIntro(state: HomeIntroState | null) {
+    this.homeIntro = state
+  }
+
+  /** Reveal complete character columns, keeping the final text width reserved. */
+  private revealIntroText(text: string, progress: number, row: number, rows: number): string {
+    if (progress >= 1) return text
+    const rowDelay = row / Math.max(1, rows - 1) * 0.18
+    const visible = Math.max(0, Math.min(1, progress * 1.18 - rowDelay))
+    const count = Math.floor(text.length * visible)
+    return text.slice(0, count) + ' '.repeat(text.length - count)
+  }
+
   /** 每帧更新主页动态布局。 */
   update(
     dynamicLayoutContainer: HTMLDivElement,
@@ -186,7 +201,10 @@ export class SceneLayout {
       const el = this.titleLinesPool[i]!
       const spacing = this.TITLE_LETTER_SPACINGS[i] || '0px'
 
-      setText(el, this.applyVisibility(this.TITLE_LINES[i]!, this.homeVisibility, i))
+      const title = this.TITLE_LINES[i]!
+      setText(el, this.homeIntro
+        ? this.revealIntroText(title, this.homeIntro.title, i, this.TITLE_LINES.length)
+        : this.applyVisibility(title, this.homeVisibility, i))
       setStyle(el, 'right', `${titleRightSpace}px`)
       setStyle(el, 'top', `${currentTitleY}px`)
       setStyle(el, 'font', `${this.currentTitleFontSize}px ${this.HEADLINE_FONT_FAMILY}`)
@@ -226,7 +244,8 @@ export class SceneLayout {
 
       const limits = asciiRenderer.getObstacleLimits(lineTop, lineHeight)
       if (limits.modelRight > 0) {
-        slotLeft = Math.max(slotLeft, limits.modelRight + HOME_LAYOUT.body.modelDodgePadding)
+        const arrivalPadding = this.homeIntro ? Math.round(28 * (1 - this.homeIntro.camera)) : 0
+        slotLeft = Math.max(slotLeft, limits.modelRight + HOME_LAYOUT.body.modelDodgePadding + arrivalPadding)
       }
 
       const width = currentSlotRight - slotLeft
@@ -280,7 +299,9 @@ export class SceneLayout {
       const data = linesData[i]
       const el = this.textLinesPool[i]
       if (el && data) {
-        setText(el, this.applyVisibility(data.text, this.homeVisibility, 1000 + i))
+        setText(el, this.homeIntro
+          ? this.revealIntroText(data.text, this.homeIntro.body, i, linesData.length)
+          : this.applyVisibility(data.text, this.homeVisibility, 1000 + i))
         setStyle(el, 'left', `${data.x}px`)
         setStyle(el, 'top', `${data.y}px`)
       }
